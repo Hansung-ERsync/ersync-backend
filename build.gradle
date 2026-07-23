@@ -1,0 +1,64 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'com.diffplug.spotless' version '8.8.0'
+}
+
+group = 'com.hansungteam'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	compileOnly 'org.projectlombok:lombok'
+	runtimeOnly 'com.mysql:mysql-connector-j'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+tasks.named('javadoc') {
+	options.addBooleanOption('Xdoclint:all,-missing', true)
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('javadoc')
+}
+
+spotless {
+	java {
+		target 'src/**/*.java'
+		leadingTabsToSpaces(4)
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+
+	format 'misc', {
+		target '*.gradle',
+				'.github/**/*.yml',
+				'.gitignore',
+				'.gitattributes'
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}

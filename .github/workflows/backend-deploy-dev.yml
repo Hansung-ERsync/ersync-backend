@@ -1,0 +1,59 @@
+name: Backend ECR Build
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    id-token: write
+
+concurrency:
+    group: backend-ecr-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    AWS_REGION: ${{ vars.AWS_REGION }}
+    ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v6
+
+            - name: Set up Java
+              uses: actions/setup-java@v5
+              with:
+                  distribution: temurin
+                  java-version: "25"
+
+            - name: Set up Gradle
+              uses: gradle/actions/setup-gradle@v6
+
+            - name: Run tests
+              run: ./gradlew clean check
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v6
+              with:
+                  role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+                  aws-region: ${{ env.AWS_REGION }}
+
+            - name: Log in to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Build and push image
+              env:
+                  ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+                  IMAGE_TAG: ${{ github.sha }}
+              run: |
+                  image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+                  docker build --tag "${image_uri}" .
+                  docker push "${image_uri}"
+                  echo "Pushed ${image_uri}"
