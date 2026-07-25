@@ -164,6 +164,9 @@ curl http://127.0.0.1:8080/actuator/health/readiness
 - 프론트 영향이 있으면 실제 코드 기준의 계약과 링크를 확인합니다.
 - PR은 `main`을 대상으로 생성합니다.
 - 필수 CI와 리뷰 승인 1명을 통과한 뒤 squash merge합니다.
+- 모든 커밋 메시지와 PR 제목은 `[유형] 변경 목적` 형식으로 작성합니다.
+- 허용 유형은 `feature`, `fix`, `refactor`, `chore`, `docs`입니다.
+- 유형 선택과 제목 예시는 `docs/conventions.md`의 Git 협업 규칙을 따릅니다.
 
 ## 7. main 병합과 배포
 
