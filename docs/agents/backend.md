@@ -1,8 +1,11 @@
-# ERSync Backend Agent Context
+# ERSync 백엔드 에이전트 컨텍스트
 
 - Audience: Java and Spring Boot backend agents
-- Status: MVP implementation contract
 - Updated: 2026-07-25
+
+Read this document after `docs/agents/context.md`. Before implementation, read
+the team-reviewed feature documents and then `docs/conventions.md`. Domain
+boundaries, error contracts, and delivery rules are included in this document.
 
 ## 1. Repository Context
 
@@ -17,6 +20,36 @@ Current backend skeleton:
 - existing global exception types under `global.exception`
 
 JPA, validation, Flyway, MySQL, and the test database foundation are configured. Domain entities and migrations have not been added yet. Realtime delivery and external observability are not configured.
+
+### 1.1 Existing Platform Contract
+
+- every request receives a server-generated trace ID;
+- the same value is returned through `X-Trace-Id` and error responses;
+- domain failures use registered `CustomException(ErrorCode)` values;
+- all 4xx and 5xx responses use the shared error response shape;
+- error logs use structured `key=value` fields that LogScope can analyze;
+- security is stateless and only health endpoints are public by default;
+- authorization requires role checks plus organization or request ownership checks;
+- JWT login is planned with a 15-minute access token and 7-day refresh token;
+- refresh tokens must be stored as hashes and rotated on refresh;
+- local development uses Docker MySQL, tests use H2 plus MySQL Testcontainers, and EC2 dev uses RDS;
+- pull requests run Gradle checks and Docker build;
+- `main` creates an ECR image and deploys it to EC2 with readiness-based rollback;
+- runtime secrets come from AWS Secrets Manager and must not be committed or baked into images.
+
+Before changing code, read:
+
+1. `docs/agents/context.md`
+2. this backend context
+3. the team-reviewed feature `spec.md`
+4. the feature `implementation.md`
+5. `docs/conventions.md`
+
+After implementation, update the same feature's `review.md` with requirement checks,
+changed API and DB contracts, executed tests, remaining risks, and the next
+recommended task. When the feature affects frontend integration, also create or
+update `docs/contracts/{number}-{feature}.md` from the implemented code and tests,
+then include it in the pull request. The feature templates define the length limits.
 
 ## 2. Backend Mission
 
@@ -1564,7 +1597,19 @@ Do not hard-code a guessed legal retention period in domain constants.
 - MySQL compatibility is validated with Testcontainers MySQL 8.4 tests.
 - frontend local dev servers call the shared dev API through configured CORS origins.
 - do not create branch-specific AWS environments for MVP development.
+- run `./gradlew clean check` locally before creating a pull request.
+- when API, database, or runtime configuration changes, also verify the local profile and readiness.
+- do not create a pull request while a required local check is failing.
+- record the executed commands and results in the feature `review.md`.
 - merge to `main` only after PR review and Backend CI success.
+- one pull request completes one user-verifiable feature, including its API,
+  persistence, authorization, errors, tests, and feature documents.
+- do not split one feature into controller-only, service-only, repository-only,
+  or migration-only pull requests.
+- split a large feature only at a user workflow boundary that can be reviewed,
+  tested, and deployed independently.
+- when frontend integration changes, include one contract generated from
+  `docs/templates/frontend-contract.md`.
 
 ## 38. Suggested Implementation Order
 
@@ -1607,3 +1652,147 @@ Do not start with realtime transport before the transactional domain state is re
 - regional suitability of distance search rules
 - network outage fallback process
 - exact vital plausibility boundaries and protocol wording
+
+## 41. Domain Ownership
+
+Feature documents remain flat under `docs/features/`. Record the primary domains
+in the feature `spec.md`; do not create nested domain folders.
+
+| Domain | Owns | Must not own |
+|---|---|---|
+| `auth` | login, token lifecycle, authenticated actor context | organization registration, invitation issuance |
+| `organization` | hospital and EMS organization identity, membership | hospital ER profile, login tokens |
+| `invitation` | one-time organization and role-bound signup codes | authentication sessions |
+| `hospital` | ER address, verified coordinates, contact, receiving state | offer decisions, clinical data, ETA calculation |
+| `transport` | request, search rounds, offers, destination, retry, cancellation | clinical record contents, map provider details |
+| `clinical` | protocol version, assessment, treatment, correction history | hospital search and destination |
+| `location` | latest location, freshness, distance, ETA adapter | full route history |
+| `handoff` | paramedic completion request and hospital confirmation | request creation and hospital search |
+| `notification` | realtime state-change delivery, reconnect, outbox dispatch | authoritative business state |
+| `audit` | security and business audit events | passwords, tokens, invitation plaintext, full clinical payloads |
+| `global` | security, shared errors, trace ID, logs, database and health foundation | feature-specific business policy |
+
+Boundary rules:
+
+- `clinical` records are append-only after submission.
+- `transport` allows multiple accepted offers but at most one current destination.
+- `location` persists only the latest position; exact coordinates are destination-scoped.
+- `handoff` completes only after the paramedic request and destination hospital confirmation.
+- `notification` events signal change; current query state remains authoritative.
+- shared accounts and security context come from authentication, never client-supplied IDs.
+
+## 42. Error and Log Contract
+
+All 4xx and 5xx responses use:
+
+```json
+{
+  "code": "HOSPITAL_001",
+  "message": "병원을 찾을 수 없습니다.",
+  "fieldErrors": [],
+  "traceId": "01JABC"
+}
+```
+
+- `code` is a stable client branch key.
+- `message` is a fixed, user-safe message.
+- `fieldErrors` contains DTO validation failures.
+- `traceId` connects the response to server logs.
+- never return a stack trace or internal exception message.
+
+Raise a known failure with:
+
+```java
+throw new CustomException(ErrorCode.HOSPITAL_NOT_FOUND);
+```
+
+Do not create ad hoc error codes or messages in controllers and services. A new
+error requires:
+
+1. a failure condition in the feature `spec.md`;
+2. a unique `ErrorCode` enum value;
+3. reviewed HTTP status and public message;
+4. a failure-path test;
+5. an entry in the table below.
+
+Code format is `{AREA}_{3-digit number}`. Enum names describe the condition, for
+example `TRANSPORT_STATUS_CANNOT_CHANGE`.
+
+| HTTP | Use |
+|---:|---|
+| 400 | invalid request format, value, or validation |
+| 401 | missing, expired, or forged authentication |
+| 403 | authenticated but role, organization, or ownership denied |
+| 404 | resource does not exist |
+| 405 | unsupported HTTP method |
+| 409 | duplicate request or state-transition conflict |
+| 429 | rate limit exceeded |
+| 500 | unexpected internal failure |
+| 502 | invalid external-service response |
+| 503 | temporary external or critical dependency failure |
+
+Current error registry:
+
+| Area | Code | HTTP | Condition |
+|---|---|---:|---|
+| COMMON | `COMMON_001` | 400 | DTO, parameter, or type validation failure |
+| COMMON | `COMMON_002` | 405 | unsupported HTTP method |
+| COMMON | `COMMON_003` | 500 | unhandled server exception |
+| COMMON | `COMMON_004` | 403 | common access denial |
+| COMMON | `COMMON_005` | 409 | unique-key or duplicate-request conflict |
+| COMMON | `COMMON_006` | 404 | no mapped or available resource |
+| AUTH | `AUTH_001` | 401 | missing authentication |
+| AUTH | `AUTH_002` | 401 | invalid or expired access token |
+| AUTH | `AUTH_003` | 403 | missing role or permission |
+| USER | `USER_001` | 404 | user account not found |
+| USER | `USER_002` | 403 | disabled account |
+| HOSPITAL | `HOSPITAL_001` | 404 | hospital not found |
+| HOSPITAL | `HOSPITAL_002` | 409 | hospital cannot receive the request |
+| HOSPITAL | `HOSPITAL_003` | 409 | receiving state cannot be confirmed |
+| HOSPITAL | `HOSPITAL_004` | 409 | insufficient bed, staff, or equipment capacity |
+| TRANSPORT | `TRANSPORT_001` | 404 | transport request not found |
+| TRANSPORT | `TRANSPORT_002` | 409 | destination offer was not accepted |
+| TRANSPORT | `TRANSPORT_003` | 409 | transport request expired |
+| TRANSPORT | `TRANSPORT_004` | 409 | state transition not allowed |
+| TRANSPORT | `TRANSPORT_005` | 404 | hospital offer not found |
+| TRANSPORT | `TRANSPORT_006` | 409 | hospital already accepted or rejected |
+| PROTOCOL | `PROTOCOL_001` | 404 | protocol not found |
+| PROTOCOL | `PROTOCOL_002` | 409 | protocol version inactive |
+| PROTOCOL | `PROTOCOL_003` | 500 | protocol evaluation failed |
+
+Structured error logs:
+
+```text
+WARN event=BUSINESS_ERROR traceId=01JABC code=HOSPITAL_001 status=404 method=GET path=/api/v1/hospitals/{hospitalId} exception=CustomException
+ERROR event=SYSTEM_ERROR traceId=01JXYZ code=COMMON_003 status=500 method=POST path=/api/v1/transports exception=IllegalStateException
+```
+
+| Event | Level |
+|---|---|
+| `BUSINESS_ERROR` | WARN |
+| `VALIDATION_ERROR` | WARN |
+| `AUTH_ERROR` | WARN |
+| `SYSTEM_ERROR` | ERROR with stack trace |
+
+- log the Spring route pattern when possible, not a dynamic identifier.
+- do not log request or response bodies.
+- never log patient data, tokens, passwords, invitation plaintext, secrets, or exact GPS.
+- add LogScope parsing and matching for `traceId` when request-level analysis is needed.
+
+## 43. Frontend Integration Contract
+
+Create `docs/contracts/{number}-{feature}.md` when a feature changes an API,
+authorization scope, state or enum, error handling, or realtime event consumed by
+frontend.
+
+- use one contract per feature;
+- create or finalize it after implementation and local verification;
+- include method, path, request, response, authorization, enums, errors, events,
+  frontend sequence, compatibility, and verification;
+- include it only when it matches code and tests and has no unresolved decisions;
+- link the contract from the feature `review.md` and pull request;
+- record `Frontend Impact: NONE` instead when there is no frontend effect;
+- do not maintain another handwritten API contract document.
+
+If OpenAPI is introduced, OpenAPI is the exact schema source and the frontend
+contract remains the feature-level change and integration guide.

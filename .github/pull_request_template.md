@@ -1,24 +1,26 @@
 # Pull Request
 
-## PR 유형
-- [ ] `feature` 새 기능 추가
-- [ ] `fix` 버그 수정
-- [ ] `refactor` 리팩터링(동작 변경 없음)
-- [ ] `chore` 빌드/설정/의존성 변경
-- [ ] `docs` 문서 변경
+## 기능
 
-## 변경 내용
-- 핵심 변경 사항을 핵심이 드러날 수 있도록 정리해주세요.
+- 유형: `feature / fix / refactor / chore / docs`
+- 완료한 기능:
+- 기능 문서: `docs/features/... / NONE`
+- 검수 문서: `docs/features/.../review.md / NONE`
+- 프론트 계약: `docs/contracts/... / NONE`
 
-## 검증
-- [ ] `./gradlew clean check`
-- [ ] 로컬 실행 확인
-- [ ] Docker 빌드 확인 또는 PR CI에서 확인 예정
+## Spec 이후 변경
 
-## 영향 범위
-- [ ] DB migration 있음
-- [ ] API 계약 변경 있음
-- [ ] 문서 변경 있음
+- 정책 변경: 없음
+- API·프론트 계약 변경: 없음
 
-## 참고
-- 리뷰어가 특히 확인해야 할 부분이나 미해결 위험을 적어주세요.
+<!-- 변경이 있으면 spec과 프론트 계약에 먼저 반영한 뒤 요약합니다. -->
+
+## 범위
+
+- spec 밖 추가 작업: 없음
+- 의도적으로 제외한 후속 작업: 없음
+
+## 로컬 검증
+
+- `./gradlew clean check`: `PASS / FAIL`
+- local 실행·readiness: `PASS / N/A`

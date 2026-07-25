@@ -1,8 +1,11 @@
-# ERSync AI Agent Context
+# ERSync 공통 에이전트 컨텍스트
 
-- Audience: any AI agent working on this repository
-- Status: MVP source of truth
+- Audience: frontend and backend AI agents
 - Updated: 2026-07-25
+
+This is the one shared context delivered to both frontend and backend agents. It defines product terms, roles, state, visibility, clinical data, workflow, privacy, and reliability rules that both sides must interpret identically.
+
+Human-readable product policies and scenarios are maintained separately in [`mvp-requirements.md`](../project/mvp-requirements.md). This context must not override them.
 
 ## 1. Product Mission
 

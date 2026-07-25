@@ -1,4 +1,4 @@
-# ERSync 백엔드 MVP DevOps 가이드
+# ERSync DevOps 가이드
 
 - 범위: Spring Boot dev 환경
 - 리전: `ap-northeast-2`
@@ -137,7 +137,6 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```text
 Pull Request 생성
 → Gradle 테스트
-→ bootJar 생성
 → Docker 이미지 빌드 확인
 ```
 
@@ -156,6 +155,8 @@ main 브랜치 병합
 → 성공하면 이전 컨테이너 제거
 → 실패하면 이전 컨테이너 복구
 ```
+
+자동 배포와 수동 재실행은 모두 `main` 브랜치에서만 허용한다.
 
 배포 실행 계약:
 
@@ -196,7 +197,7 @@ main 브랜치 병합
 5. `ersync/dev/backend` Secret을 만든다. 완료
 6. EC2 IAM Role에 해당 Secret 조회 권한을 추가한다. 완료
 7. JPA와 Flyway 기반을 추가한다. 완료
-8. 변경 사항을 `main`에 반영하고 JDBC TLS 연결을 확인한다.
+8. 변경 사항을 `main`에 반영하고 JDBC TLS 연결을 확인한다. 완료
 9. 의도적인 readiness 실패로 이전 이미지 복구를 확인한다.
 10. CloudWatch 로그 수집을 구성한다.
 
@@ -225,7 +226,7 @@ src/main/resources/application-local.yaml
 - [x] `main` push에서 EC2 자동 배포가 성공함
 - [x] EC2가 IAM Role로 Secret에 접근함
 - [x] RDS의 Public access가 비활성화됨
-- [ ] 새 이미지가 JDBC `VERIFY_IDENTITY`로 RDS에 연결됨
+- [x] 새 이미지가 JDBC `VERIFY_IDENTITY`로 RDS에 연결됨
 - [ ] readiness 실패 시 배포가 실패함
 - [ ] 이전 이미지로 복구할 수 있음
 - [x] 현재 기반 로그에 환자정보, GPS 좌표, Secret이 없음
