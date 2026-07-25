@@ -1,4 +1,4 @@
-# ERSync 백엔드 MVP DevOps 가이드
+# ERSync DevOps 가이드
 
 - 범위: Spring Boot dev 환경
 - 리전: `ap-northeast-2`
@@ -38,13 +38,14 @@ S3는 백엔드 배포에 사용하지 않는다.
 
 ### 네트워크
 
-- EC2는 HTTPS 요청만 받는다.
+- 현재 dev EC2는 고정 IP의 HTTP 80 요청을 Nginx로 받고 Spring Boot `127.0.0.1:8080`으로 프록시한다.
+- 도메인과 HTTPS는 후속 작업으로 분리한다.
 - SSH 포트는 열지 않는다.
 - RDS는 Public access를 비활성화한다.
 - RDS `3306`은 EC2 Security Group만 접근할 수 있다.
 
 ```text
-인터넷 → EC2:443 허용
+인터넷 → EC2:80 허용
 EC2 → RDS:3306 허용
 인터넷 → RDS 차단
 ```
@@ -120,12 +121,22 @@ GitHub Actions는 Access Key 대신 OIDC 임시 권한을 사용한다.
 
 ## 3. CI/CD 시나리오
 
+### 로컬 개발
+
+로컬 개발자는 RDS에 직접 접속하지 않는다. Docker MySQL과 `local` profile을 사용한다.
+
+```bash
+docker compose up -d
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+```
+
+`local` profile은 `127.0.0.1:3306`의 MySQL만 바라본다.
+
 ### Pull Request
 
 ```text
 Pull Request 생성
 → Gradle 테스트
-→ bootJar 생성
 → Docker 이미지 빌드 확인
 ```
 
@@ -145,10 +156,13 @@ main 브랜치 병합
 → 실패하면 이전 컨테이너 복구
 ```
 
+자동 배포와 수동 재실행은 모두 `main` 브랜치에서만 허용한다.
+
 배포 실행 계약:
 
 - 컨테이너 이름은 `ersync-api`다.
 - EC2의 `127.0.0.1:8080`에서만 애플리케이션을 노출한다.
+- 외부 dev API 접근은 Nginx가 고정 IP의 HTTP 80을 받아 컨테이너로 프록시한다.
 - readiness 경로는 `/actuator/health/readiness`다.
 - readiness에는 Spring Boot 상태와 DB 연결 상태를 포함한다.
 - readiness 대기 시간은 최대 90초다.
@@ -171,6 +185,7 @@ main 브랜치 병합
 - private RDS MySQL 8.4와 애플리케이션 전용 계정이 구성되어 있다.
 - `ersync/dev/backend` Secret이 생성되어 있다.
 - EC2 IAM Role의 해당 Secret 조회를 확인했다.
+- Elastic IP와 Nginx reverse proxy가 구성되어 있다.
 - CloudWatch 애플리케이션 로그 수집은 아직 구성 전이다.
 
 ## 5. 첫 dev 환경 생성 순서
@@ -182,7 +197,7 @@ main 브랜치 병합
 5. `ersync/dev/backend` Secret을 만든다. 완료
 6. EC2 IAM Role에 해당 Secret 조회 권한을 추가한다. 완료
 7. JPA와 Flyway 기반을 추가한다. 완료
-8. 변경 사항을 `main`에 반영하고 JDBC TLS 연결을 확인한다.
+8. 변경 사항을 `main`에 반영하고 JDBC TLS 연결을 확인한다. 완료
 9. 의도적인 readiness 실패로 이전 이미지 복구를 확인한다.
 10. CloudWatch 로그 수집을 구성한다.
 
@@ -195,6 +210,8 @@ Dockerfile
 .github/workflows/backend-ci.yml
 .github/workflows/backend-deploy-dev.yml
 scripts/deploy-ec2.sh
+compose.yaml
+src/main/resources/application-local.yaml
 ```
 
 실제 Secret과 AWS Endpoint는 저장소에 커밋하지 않는다.
@@ -209,7 +226,7 @@ scripts/deploy-ec2.sh
 - [x] `main` push에서 EC2 자동 배포가 성공함
 - [x] EC2가 IAM Role로 Secret에 접근함
 - [x] RDS의 Public access가 비활성화됨
-- [ ] 새 이미지가 JDBC `VERIFY_IDENTITY`로 RDS에 연결됨
+- [x] 새 이미지가 JDBC `VERIFY_IDENTITY`로 RDS에 연결됨
 - [ ] readiness 실패 시 배포가 실패함
 - [ ] 이전 이미지로 복구할 수 있음
 - [x] 현재 기반 로그에 환자정보, GPS 좌표, Secret이 없음
