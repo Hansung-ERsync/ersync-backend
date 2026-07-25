@@ -9,9 +9,14 @@
 GitHub Actions
   → ECR에 Docker 이미지 저장
 
-EC2 Docker Compose
+EC2 Docker
+  → ECR 이미지 pull
+  → Spring Boot 컨테이너 교체
+  → readiness 실패 시 이전 컨테이너 복구
+
+후속 구성
   → Secrets Manager에서 설정 조회
-  → Private RDS MySQL 연결
+  → RDS MySQL 연결
   → CloudWatch에 로그 전송
 ```
 
@@ -32,7 +37,7 @@ S3는 백엔드 배포에 사용하지 않는다.
 
 - EC2는 HTTPS 요청만 받는다.
 - SSH 포트는 열지 않는다.
-- RDS는 Private Subnet에 둔다.
+- RDS는 Public access를 비활성화한다.
 - RDS `3306`은 EC2 Security Group만 접근할 수 있다.
 
 ```text
@@ -123,40 +128,45 @@ main 브랜치 병합
 → Gradle 검사
 → Docker 이미지 빌드
 → Git SHA 태그로 ECR push
+→ SSM Run Command로 EC2에 배포 명령 전달
+→ EC2가 새 이미지 pull
+→ 기존 컨테이너를 rollback 대상으로 보관
+→ 새 컨테이너 readiness 확인
+→ 성공하면 이전 컨테이너 제거
+→ 실패하면 이전 컨테이너 복구
 ```
 
-## 4. 지금 AWS에서 할 작업
+배포 실행 계약:
 
-1. 루트 계정 MFA를 설정한다.
-2. AWS Budget과 이메일 경보를 만든다.
-3. Private ECR Repository `ersync-api`를 만든다.
-4. ECR 이미지 스캔과 태그 불변을 활성화한다.
-5. GitHub OIDC Provider를 등록한다.
-6. GitHub Actions dev 배포 Role을 만든다.
-7. EC2 dev IAM Role을 만든다.
-8. 리소스 공통 태그를 정한다.
+- 컨테이너 이름은 `ersync-api`다.
+- EC2의 `127.0.0.1:8080`에서만 애플리케이션을 노출한다.
+- readiness 경로는 `/actuator/health/readiness`다.
+- readiness 대기 시간은 최대 90초다.
+- Docker 로그는 파일당 10MB, 최대 3개로 순환한다.
+- 배포 태그로 `latest`를 허용하지 않는다.
+- 배포 스크립트는 EC2의 `/usr/local/bin/ersync-deploy`에 설치된다.
 
-```text
-Project=ersync
-Environment=dev
-Owner=<team-name>
-```
+## 4. 현재 AWS 구성
 
-로컬에는 AWS CLI v2를 설치하고 역할 기반 로그인을 설정한다.
+- Private ECR Repository `ersync-api`가 생성되어 있다.
+- GitHub OIDC Provider와 dev 배포 Role이 생성되어 있다.
+- EC2에 Docker와 Systems Manager가 구성되어 있다.
+- EC2 IAM Role은 ECR pull과 Systems Manager 연결 권한을 가진다.
+- GitHub Actions Role은 ECR push와 지정 EC2의 SSM 명령 권한을 가진다.
+- GitHub Repository Variable `EC2_INSTANCE_ID`가 등록되어 있다.
+- RDS와 Secrets Manager는 아직 구성 전이다.
 
 ## 5. 첫 dev 환경 생성 순서
 
-1. VPC와 Subnet을 만든다.
-2. EC2와 RDS Security Group을 만든다.
-3. Private RDS MySQL을 만든다.
-4. `ersync_app` DB 계정을 만든다.
-5. `ersync/dev/backend` Secret을 만든다.
-6. EC2를 만들고 EC2 IAM Role을 연결한다.
-7. EC2에 Docker와 Compose를 설치한다.
-8. CloudWatch Log Group을 만든다.
-9. GitHub Actions에서 ECR push를 확인한다.
-10. Systems Manager 배포를 확인한다.
-11. readiness와 이전 이미지 복구를 확인한다.
+1. GitHub Actions에서 자동 EC2 배포를 확인한다.
+2. readiness 성공과 이전 컨테이너 정리를 확인한다.
+3. 의도적인 readiness 실패로 이전 이미지 복구를 확인한다.
+4. RDS MySQL을 만들고 EC2와 연결한다.
+5. `ersync_app` DB 계정을 만든다.
+6. `ersync/dev/backend` Secret을 만든다.
+7. EC2 IAM Role에 해당 Secret 조회 권한을 추가한다.
+8. JPA와 Flyway 기반을 추가하고 DB 연결을 확인한다.
+9. CloudWatch 로그 수집을 구성한다.
 
 ## 6. 현재 저장소에 추가된 파일
 
@@ -166,6 +176,7 @@ Dockerfile
 .editorconfig
 .github/workflows/backend-ci.yml
 .github/workflows/backend-deploy-dev.yml
+scripts/deploy-ec2.sh
 ```
 
 실제 Secret과 AWS Endpoint는 저장소에 커밋하지 않는다.
@@ -175,9 +186,11 @@ Dockerfile
 - [x] 로컬 Gradle 검사와 Docker 빌드가 성공함
 - [x] GitHub Actions에 AWS Access Key를 사용하지 않음
 - [x] ECR 이미지 태그로 Git SHA를 사용함
-- [ ] 첫 `main` push에서 ECR 이미지 업로드가 성공함
-- [ ] EC2가 IAM Role로 ECR과 Secret에 접근함
-- [ ] RDS가 Private으로 구성됨
+- [x] 첫 `main` push에서 ECR 이미지 업로드가 성공함
+- [x] EC2가 IAM Role로 ECR에 접근함
+- [ ] `main` push에서 EC2 자동 배포가 성공함
+- [ ] EC2가 IAM Role로 Secret에 접근함
+- [ ] RDS의 Public access가 비활성화됨
 - [ ] DB 연결에 TLS를 사용함
 - [ ] readiness 실패 시 배포가 실패함
 - [ ] 이전 이미지로 복구할 수 있음

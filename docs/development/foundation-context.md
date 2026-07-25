@@ -98,7 +98,11 @@ JWT 발급, 로그인, Refresh Token 저장은 아직 구현하지 않았다.
 ## 7. CI/CD 계약
 
 - Pull Request에서는 Gradle 검사와 Docker 빌드를 수행한다.
-- `main` push에서는 Gradle 검사 후 ECR에 이미지를 push한다.
+- `main` push에서는 Gradle 검사 후 ECR에 이미지를 push하고 EC2에 배포한다.
 - ECR 이미지 태그는 Git Commit SHA다.
 - GitHub Actions는 Access Key가 아니라 OIDC Role을 사용한다.
-- 현재 Workflow는 ECR push까지만 수행한다.
+- GitHub Actions는 SSM Run Command로 지정된 EC2에만 배포 명령을 전달한다.
+- EC2는 새 컨테이너의 readiness가 확인된 뒤에만 이전 컨테이너를 제거한다.
+- readiness가 실패하면 새 컨테이너를 제거하고 이전 컨테이너를 복구한다.
+- 배포 Workflow는 동시에 두 개가 실행되지 않도록 순차 처리한다.
+- RDS, Secrets Manager와 Flyway 연동은 아직 구현 전이다.
