@@ -165,6 +165,18 @@ selectDestination_otherOrganization_forbidden
 - 모든 커밋 메시지와 PR 제목은 `[유형] 변경 목적` 형식으로 작성한다.
 - 유형은 변경한 파일 종류가 아니라 커밋과 PR의 주된 목적을 기준으로 선택한다.
 - 기능 구현에 테스트와 문서가 함께 포함되어도 주된 목적이 기능이면 `feature`를 사용한다.
+- 브랜치 이름은 `{유형}/{짧은-kebab-case-목적}` 형식으로 작성한다.
+- 브랜치 유형은 PR의 주된 유형과 일치시키고 목적은 영문 소문자 kebab-case로 작성한다.
+
+브랜치 예시:
+
+```text
+feature/admin-invitation-code
+fix/expired-invitation-validation
+refactor/invitation-validation
+chore/update-pr-template
+docs/hospital-acceptance-policy
+```
 
 | 유형 | 사용 기준 | 커밋·PR 제목 예시 |
 |---|---|---|
