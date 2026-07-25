@@ -16,7 +16,7 @@ Current backend skeleton:
 - base package: `com.hansungteam.ersync`
 - existing global exception types under `global.exception`
 
-Persistence, validation, migration, realtime, and observability dependencies are not yet configured. Add them deliberately when implementation starts.
+JPA, validation, Flyway, MySQL, and the test database foundation are configured. Domain entities and migrations have not been added yet. Realtime delivery and external observability are not configured.
 
 ## 2. Backend Mission
 

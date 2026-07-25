@@ -105,4 +105,12 @@ JWT 발급, 로그인, Refresh Token 저장은 아직 구현하지 않았다.
 - EC2는 새 컨테이너의 readiness가 확인된 뒤에만 이전 컨테이너를 제거한다.
 - readiness가 실패하면 새 컨테이너를 제거하고 이전 컨테이너를 복구한다.
 - 배포 Workflow는 동시에 두 개가 실행되지 않도록 순차 처리한다.
-- RDS, Secrets Manager와 Flyway 연동은 아직 구현 전이다.
+- EC2는 IAM Role로 `ersync/dev/backend` Secret을 읽는다.
+- Secret은 Docker 환경변수나 이미지에 넣지 않고 권한이 제한된 런타임 설정 파일로 마운트한다.
+- EC2 재부팅 시 systemd가 Docker보다 먼저 런타임 Secret 파일을 다시 생성하며, 실패하면 Docker 시작을 차단하고 재시도한다.
+- 컨테이너 교체 중 EC2가 중단되면 부팅 후 복구 서비스가 준비된 현재 컨테이너 또는 이전 컨테이너를 선택한다.
+- JPA, Flyway와 MySQL Connector/J 기반이 구성되어 있다.
+- JDBC는 RDS CA truststore와 `sslMode=VERIFY_IDENTITY`를 사용한다.
+- readiness에는 DB 상태가 포함되므로 DB 연결에 실패한 이미지는 배포되지 않는다.
+- 애플리케이션 컨테이너는 읽기 전용 루트 파일시스템과 권한 제거 상태로 실행한다.
+- 실제 도메인 엔티티와 Flyway migration은 기능 구현 시 추가한다.

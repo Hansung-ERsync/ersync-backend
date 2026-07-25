@@ -139,6 +139,8 @@ idx_transport_request_status
 - Repository 매핑과 쿼리는 `@DataJpaTest`로 검증한다.
 - Controller 계약은 `@WebMvcTest` 또는 통합 테스트로 검증한다.
 - 권한, 조직 소유권, 중복 요청, 동시성, 재시도를 테스트한다.
+- 첫 Flyway migration부터 MySQL 8.4 Testcontainers 테스트를 추가해 실제 DDL 호환성을 검증한다.
+- H2 MySQL 모드는 빠른 컨텍스트 검사에만 사용하며 실제 MySQL 호환성 증명으로 취급하지 않는다.
 - 테스트 이름은 시나리오와 기대 결과가 드러나게 작성한다.
 
 예시:
