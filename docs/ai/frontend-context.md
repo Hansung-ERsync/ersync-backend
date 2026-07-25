@@ -2,7 +2,7 @@
 
 - Audience: Flutter mobile and React web agents
 - Status: MVP implementation contract
-- Updated: 2026-07-17
+- Updated: 2026-07-25
 
 ## 1. Frontend Mission
 
@@ -28,6 +28,10 @@ If older notes conflict, apply these rules:
 - hospital recipients are selected automatically by the backend;
 - multiple hospitals may accept;
 - the paramedic selects one current destination;
+- non-destination accepted cards remain in the paramedic list but disappear from hospital active dashboards after destination selection;
+- the paramedic may cancel with a reason before handoff is requested;
+- candidate exhaustion supports same-request retry and phone connection;
+- stale location remains visible with elapsed-time text after 30 seconds by default;
 - ETA is automatic and never a required input;
 - situation-room functions are out of MVP;
 - patient direct identifiers are never displayed.
@@ -463,6 +467,18 @@ Do not imply that the paramedic must remain idle. The patient update actions bec
 
 When 100km is reached with fewer than three candidates, show a clear warning and existing hospital responses. Do not fabricate candidates.
 
+When the final 100km response window ends without acceptance, or every contacted hospital rejects earlier:
+
+- show request state `후보 소진`;
+- state clearly that no hospital accepted and distinguish rejection from no response;
+- provide `재전송` and `전화 연결` actions;
+- keep the current patient request and clinical timeline;
+- show progress for the new dispatch attempt after retry.
+
+`재전송` reuses the same request but starts a new dispatch attempt. Earlier rejected and nonresponsive hospitals may appear again. Do not present it as creating a new patient request.
+
+`전화 연결` opens the registered ER contact for the selected hospital. Returning from the phone app must not mark the request accepted or change its status.
+
 ## 16. Hospital Response List
 
 Separate sections:
@@ -488,7 +504,7 @@ Rejected hospital row:
 - other detail when present
 - response time
 
-Current destination card has a persistent `이동 중` status. Do not remove other accepted cards.
+Current destination card has a persistent `이동 중` status. Keep other accepted cards in the paramedic app so the destination can be changed later. This rule does not keep those cards in non-destination hospital active dashboards.
 
 ## 17. Destination Change
 
@@ -505,6 +521,8 @@ After success:
 
 - mark B as current destination;
 - keep A in accepted/history state;
+- ensure B's hospital active request appears as `이동 중`;
+- tell A that the destination changed and remove the request from A's active dashboard;
 - stop rendering exact location for A's hospital session through server authorization;
 - refetch request and offer state.
 
@@ -519,6 +537,7 @@ Top area:
 - distance and ETA
 - ER call action
 - destination-change action
+- transport-cancel action before handoff request
 
 Persistent quick actions:
 
@@ -561,13 +580,39 @@ If correction is supported, open a dedicated action from the timeline. Require a
 - allow a paramedic-confirmed current-location map pin when GPS acquisition fails;
 - while en route, send around every 10 seconds;
 - indicate GPS disabled, permission denied, stale, or current;
+- after 30 seconds without a new server-received location by default, keep the last marker and show `마지막 수신 N초/분 전`;
+- use text or a status icon together with color for stale location;
+- clear stale presentation automatically when a new current location arrives;
+- do not play an urgent sound or show an error dialog solely because location is stale;
 - never draw or persist a full route history;
 - show the exact current ambulance marker only in the current destination hospital UI;
 - label ETA with calculated time;
 - use `계산 불가` when the provider fails;
 - do not block request, acceptance, destination, or completion actions due to ETA failure.
 
-## 20. Acceptance Withdrawal Alert
+## 20. Transport Cancellation UX
+
+Show `이송 취소` after the request has been sent and hide or disable it once handoff has been requested.
+
+The confirmation flow requires one reason:
+
+```text
+환자 이송 거부
+보호자 자체 이송
+현장 상황 종료
+기타
+```
+
+The confirmation must explain:
+
+- every pending or accepted hospital will be notified;
+- the current destination will be released;
+- the request cannot be resumed;
+- a new request is required if transport becomes necessary again.
+
+After success, remove the request from the active transport flow and show a terminal `취소됨` result. Do not offer resume. Repeated taps or reconnect retries must reuse the same idempotency key.
+
+## 21. Acceptance Withdrawal Alert
 
 If a hospital withdraws acceptance:
 
@@ -580,7 +625,7 @@ If a hospital withdraws acceptance:
 
 Do not tell the user to create a new patient request.
 
-## 21. Handoff Completion UX
+## 22. Handoff Completion UX
 
 Paramedic flow:
 
@@ -592,7 +637,7 @@ Paramedic flow:
 
 The mobile app does not mark completion before hospital confirmation.
 
-## 22. Hospital Dashboard
+## 23. Hospital Dashboard
 
 Suggested routes:
 
@@ -620,7 +665,18 @@ Sort active cards by:
 
 Do not let animation reorder a card while a user is interacting with its controls. Defer visual movement until the action completes or provide a stable selected detail view.
 
-## 23. Hospital Request Card
+Active dashboard visibility:
+
+- before destination selection, pending and accepted offers remain visible;
+- after destination selection, only the selected accepted hospital keeps an active card among accepted hospitals;
+- pending hospitals may remain visible while deciding;
+- a non-selected accepted hospital removes the card immediately after authoritative refetch;
+- if that hospital later becomes the destination, restore its card as `이동 중`;
+- cancellation removes the card for every pending or accepted hospital after the cancellation notice is handled.
+
+Do not delete acceptance or cancellation history when removing an active card.
+
+## 24. Hospital Request Card
 
 Minimum card content:
 
@@ -647,7 +703,7 @@ ETA 12분 · 요청 2분 경과 · 30초 전 갱신
 
 Render explicit states, for example `BP 측정 불가 · 환자 상태`.
 
-## 24. Hospital Detail and Timeline
+## 25. Hospital Detail and Timeline
 
 The detail view may show:
 
@@ -667,11 +723,11 @@ New clinical events should:
 - show a concise visual and optional sound alert;
 - not erase the earlier value.
 
-Pending and accepted hospitals may receive the current hospital-facing clinical summary. Rejected, withdrawn, and closed offers receive no later clinical update. Only the current destination receives exact location.
+Pending hospitals may receive the current hospital-facing clinical summary while deciding. Before destination selection, accepted hospitals may also receive it. After destination selection, only the selected hospital receives later clinical updates among accepted hospitals. Non-selected accepted, rejected, nonresponsive, withdrawn, cancelled, and closed offers receive no later clinical update. Only the current destination receives exact location.
 
-## 25. Hospital Decision Modals
+## 26. Hospital Decision Modals
 
-### 25.1 Reject Modal
+### 26.1 Reject Modal
 
 Require exactly one reason:
 
@@ -685,7 +741,7 @@ Require exactly one reason:
 
 `기타` requires detail. Keep rejection and acceptance buttons unavailable while a response command is pending.
 
-### 25.2 Acceptance Withdrawal Modal
+### 26.2 Acceptance Withdrawal Modal
 
 Only available after acceptance. Require:
 
@@ -699,7 +755,7 @@ Only available after acceptance. Require:
 
 The two reason lists are intentionally different. Do not merge their frontend enums.
 
-## 26. Hospital Location View
+## 27. Hospital Location View
 
 Only the current destination hospital sees:
 
@@ -709,11 +765,13 @@ Only the current destination hospital sees:
 - automatic ETA;
 - stale or disconnected state.
 
-Use a map API component. A non-destination accepted hospital sees clinical updates needed for its acceptance decision but not exact current location.
+Use a map API component. A non-destination accepted hospital sees neither the live location nor later clinical updates after destination selection. Its acceptance remains in history.
+
+When location is stale, keep the last marker and show the elapsed time from the server-provided `lastReceivedAt`. Clear the stale state on the next current update. Do not play an urgent alert for staleness alone.
 
 Do not render route breadcrumbs or historical polylines.
 
-## 27. Hospital Handoff
+## 28. Hospital Handoff
 
 When the paramedic requests handoff completion:
 
@@ -725,7 +783,7 @@ When the paramedic requests handoff completion:
 
 The shared account is the recorded actor. Do not ask for responder personal name in MVP.
 
-## 28. Receiving ON/OFF
+## 29. Receiving ON/OFF
 
 Use a labeled switch with confirmation when turning OFF.
 
@@ -736,7 +794,7 @@ Use a labeled switch with confirmation when turning OFF.
 
 Display a persistent page-level OFF state. Do not hide active work.
 
-## 29. Client State Draft
+## 30. Client State Draft
 
 ```ts
 type ExplicitValueState =
@@ -758,11 +816,26 @@ type EtaView = {
   distanceMeters?: number;
   calculatedAt?: string;
 };
+
+type LocationView = {
+  status: 'CURRENT' | 'STALE';
+  lastReceivedAt: string;
+  staleAfterSeconds: number;
+};
+
+type TransportRequestStatus =
+  | 'SEARCHING'
+  | 'CANDIDATES_EXHAUSTED'
+  | 'ACCEPTED_AVAILABLE'
+  | 'EN_ROUTE'
+  | 'HANDOFF_REQUESTED'
+  | 'COMPLETED'
+  | 'CANCELLED';
 ```
 
 Generate concrete types from the backend OpenAPI contract when available. Do not maintain divergent handwritten enums across Flutter, React, and backend.
 
-## 30. Realtime Events
+## 31. Realtime Events
 
 Handle at least:
 
@@ -770,7 +843,10 @@ Handle at least:
 TRANSPORT_REQUEST_RECEIVED
 HOSPITAL_OFFER_ACCEPTED
 HOSPITAL_OFFER_REJECTED
+HOSPITAL_OFFER_NO_RESPONSE
 HOSPITAL_ACCEPTANCE_WITHDRAWN
+HOSPITAL_SEARCH_EXHAUSTED
+HOSPITAL_SEARCH_RETRY_STARTED
 DESTINATION_SELECTED
 DESTINATION_CHANGED
 VITAL_SIGNS_ADDED
@@ -783,12 +859,13 @@ AMBULANCE_LOCATION_UPDATED
 ETA_UPDATED
 HANDOFF_REQUESTED
 HANDOFF_CONFIRMED
+TRANSPORT_REQUEST_CANCELLED
 TRANSPORT_REQUEST_CLOSED
 ```
 
 Event payloads are not the sole source of truth. Use sequence/version information and refetch after reconnect, gaps, or authorization changes.
 
-## 31. Error Copy
+## 32. Error Copy
 
 Use specific, actionable Korean messages.
 
@@ -801,12 +878,15 @@ Examples:
 요청 전송 여부를 확인하고 있습니다.
 ETA를 계산할 수 없습니다. 병원 요청은 정상적으로 진행됩니다.
 A병원이 수락을 철회했습니다. 최신 위치에서 병원을 다시 찾고 있습니다.
+수락한 병원이 없습니다. 같은 요청을 다시 보내거나 병원에 전화할 수 있습니다.
+마지막 위치입니다. 마지막 수신 1분 전
+이송이 취소되었습니다. 다시 이송하려면 새 요청을 작성해 주세요.
 병원의 인계 확인을 기다리고 있습니다.
 ```
 
 Never claim success based only on a local timeout or realtime event.
 
-## 32. Accessibility and Field Usability
+## 33. Accessibility and Field Usability
 
 - support system text scaling without clipping;
 - minimum practical touch target around 48x48 logical pixels;
@@ -818,9 +898,9 @@ Never claim success based only on a local timeout or realtime event.
 - keep numeric units visible;
 - prevent the mobile keyboard from covering the active field or submit action;
 - test in bright light and narrow mobile width;
-- provide clear destructive confirmation for draft discard and acceptance withdrawal.
+- provide clear destructive confirmation for draft discard, transport cancellation, and acceptance withdrawal.
 
-## 33. Privacy Rules
+## 34. Privacy Rules
 
 - no patient data in URLs, analytics, console logs, or crash metadata;
 - redact API error bodies before telemetry;
@@ -830,7 +910,7 @@ Never claim success based only on a local timeout or realtime event.
 - do not cache hospital clinical pages in a shared browser cache;
 - current location is rendered only after server authorization as destination hospital.
 
-## 34. Frontend Test Requirements
+## 35. Frontend Test Requirements
 
 ### Paramedic
 
@@ -841,8 +921,11 @@ Never claim success based only on a local timeout or realtime event.
 - draft restore and idempotent retry
 - append-only update timeline
 - destination selection and change
+- candidate exhaustion, same-request retry, and phone action without state mutation
+- mandatory cancellation reason and terminal cancelled state
 - withdrawal alert and re-search state
 - ETA unavailable without blocking
+- stale location label after 30 seconds and automatic recovery
 - handoff request waiting state
 
 ### Hospital
@@ -852,6 +935,9 @@ Never claim success based only on a local timeout or realtime event.
 - detailed rejection versus withdrawal reasons
 - realtime clinical update and reconnect catch-up
 - exact location visible only as current destination
+- non-destination accepted card removed from active dashboard while history remains
+- selected hidden hospital card restored when it becomes the destination
+- cancellation removes every pending or accepted active card
 - shared-account handoff confirmation
 - OFF state while active cases remain
 
@@ -870,20 +956,23 @@ Never claim success based only on a local timeout or realtime event.
 - unauthorized/expired session handling
 - no sensitive telemetry
 
-## 35. Done Criteria
+## 36. Done Criteria
 
 - all three role flows follow backend authorization;
 - the full five-phase patient workflow is usable;
 - no required clinical value can remain silently blank;
 - initial and in-transit records preserve clinical and server times;
 - hospital cards show the agreed minimum summary;
-- accepted hospital cards remain visible while one destination is selected;
+- accepted hospital cards remain in the paramedic list while only the destination remains in accepted hospitals' active dashboards;
+- exhausted search offers retry and phone actions without creating a new request or automatic phone acceptance;
+- transport cancellation is reasoned, terminal, and unavailable after handoff request;
 - live location is destination-only;
+- stale location keeps the last marker with color-independent elapsed-time text;
 - ETA failure is non-blocking;
 - both handoff actions are represented correctly;
 - offline, reconnect, concurrency, accessibility, and privacy tests pass.
 
-## 36. Out of MVP
+## 37. Out of MVP
 
 - situation-room request UI
 - hospital staff personal profiles

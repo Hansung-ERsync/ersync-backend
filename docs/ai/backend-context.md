@@ -2,7 +2,7 @@
 
 - Audience: Java and Spring Boot backend agents
 - Status: MVP implementation contract
-- Updated: 2026-07-17
+- Updated: 2026-07-25
 
 ## 1. Repository Context
 
@@ -44,11 +44,14 @@ The service supports communication. It does not make medical decisions or replac
 8. Multiple hospital offers may be accepted concurrently.
 9. `currentDestinationOfferId` is null or references exactly one accepted offer for the same request.
 10. Initial hospital recipients are server-selected, never supplied by the client.
-11. The same hospital never receives the same request twice.
+11. The same hospital receives the same request at most once per dispatch attempt. A retry after candidate exhaustion may contact it again in a new attempt.
 12. ETA/provider failure never rolls back request creation or clinical updates.
 13. Exact current location is accessible only to the current destination hospital and the request owner.
 14. Completion requires paramedic request followed by current destination hospital confirmation.
-15. Completed requests disappear from active queries but remain persisted for the retention period.
+15. Selecting a destination hides non-destination accepted offers from hospital active queries without deleting their response history.
+16. The request owner may cancel before handoff is requested. Cancellation is terminal and requires a reason.
+17. Completed and cancelled requests disappear from active queries but remain persisted for the retention period.
+18. A latest location older than the configured 30-second threshold is `STALE`, not an application error.
 
 ## 4. Roles and Organizations
 
@@ -264,17 +267,21 @@ paramedicQualificationSnapshot nullable
 status
 currentDestinationOfferId nullable
 currentSearchRadiusKm
+currentDispatchAttemptNumber
 firstAcceptedAt nullable
 assessmentProtocolVersion
 createdAt
 handoffRequestedAt nullable
 completedAt nullable
+cancelReason nullable
+cancelledAt nullable
 version
 ```
 
 ```java
 enum TransportRequestStatus {
     SEARCHING,
+    CANDIDATES_EXHAUSTED,
     ACCEPTED_AVAILABLE,
     EN_ROUTE,
     HANDOFF_REQUESTED,
@@ -292,6 +299,7 @@ id
 transportRequestId
 hospitalOrganizationId
 searchRoundId
+dispatchAttemptNumber
 distanceAtOfferMeters
 etaAtOfferSeconds nullable
 etaCalculatedAt nullable
@@ -307,6 +315,7 @@ enum HospitalOfferStatus {
     PENDING,
     ACCEPTED,
     REJECTED,
+    NO_RESPONSE,
     ACCEPTANCE_WITHDRAWN
 }
 ```
@@ -316,15 +325,18 @@ Destination selection is not an offer status. It is represented by `TransportReq
 Database constraint:
 
 ```text
-unique (transport_request_id, hospital_organization_id)
+unique (transport_request_id, hospital_organization_id, dispatch_attempt_number)
 ```
+
+An exhaustion retry creates a new offer row in a new dispatch attempt. Never reopen or overwrite the earlier offer response.
 
 ### 9.3 SearchRound
 
 ```text
 id
 transportRequestId
-trigger INITIAL | TIMER_EXPANSION | WITHDRAWAL_RESEARCH
+trigger INITIAL | TIMER_EXPANSION | EXHAUSTION_RETRY | WITHDRAWAL_RESEARCH
+dispatchAttemptNumber
 centerLatitude
 centerLongitude
 radiusKm
@@ -800,9 +812,10 @@ Each transaction:
 Use least-privilege delivery:
 
 - `PENDING` offer hospitals receive the hospital-facing updated summary while deciding;
-- `ACCEPTED` offer hospitals receive the updated summary because they may still become destination;
+- before destination selection, `ACCEPTED` offer hospitals receive the updated summary because they may still become destination;
+- after destination selection, only the current destination receives later clinical updates among accepted hospitals;
 - current destination always receives authorized clinical updates;
-- `REJECTED`, `ACCEPTANCE_WITHDRAWN`, and offers with `closedAt` receive no later clinical payload;
+- non-destination `ACCEPTED`, `REJECTED`, `NO_RESPONSE`, `ACCEPTANCE_WITHDRAWN`, and offers with `closedAt` receive no later clinical payload after destination selection or request closure;
 - exact GPS coordinates are sent only to the current destination hospital;
 - super admin receives no clinical event.
 
@@ -826,7 +839,7 @@ Eligible hospital conditions:
 - active hospital account/profile;
 - valid coordinates;
 - receiving status `ON`;
-- no offer for the request;
+- no offer for the request in the current dispatch attempt;
 - not excluded after withdrawal.
 
 ### 20.1 Initial Search
@@ -855,7 +868,42 @@ If no offer has been accepted 60 seconds after the latest search round:
 
 The first committed acceptance sets `firstAcceptedAt` and stops future automatic expansion jobs. A running job must recheck under transaction/lock before inserting offers.
 
-### 20.3 Withdrawal Re-search
+### 20.3 Candidate Exhaustion and Retry
+
+Transition to `CANDIDATES_EXHAUSTED` when:
+
+- the 100km search round has been sent and its final 60-second response window ends without an accepted offer; or
+- every contacted hospital rejects before the final window ends; or
+- no eligible hospital exists inside the maximum radius.
+
+Close remaining pending offers as `NO_RESPONSE` outcomes for the finished dispatch attempt without rewriting earlier response events.
+
+```http
+POST /api/v1/transport-requests/{requestId}/search-retries
+Idempotency-Key: ...
+```
+
+Preconditions:
+
+- request owner paramedic;
+- status is `CANDIDATES_EXHAUSTED`;
+- no accepted offer exists;
+- idempotency key present.
+
+Effects in one transaction:
+
+1. increment `currentDispatchAttemptNumber`;
+2. reset request search fields and status to `SEARCHING`;
+3. create an `EXHAUSTION_RETRY` search round for the new attempt;
+4. allow hospitals rejected or nonresponsive in earlier attempts to receive a new offer;
+5. preserve every previous search round, offer, and response event;
+6. publish `HOSPITAL_SEARCH_RETRY_STARTED`.
+
+Phone connection uses the registered ER contact returned to the paramedic client. It creates no acceptance and changes no request or offer state.
+
+Use `TRANSPORT_001` for a missing request, `AUTH_003` for the wrong owner or role, and `TRANSPORT_004` when retry is not allowed in the current request state.
+
+### 20.4 Withdrawal Re-search
 
 If an accepted hospital withdraws:
 
@@ -996,6 +1044,59 @@ Changing from A to B does not reject or delete A's acceptance. Exact location au
 
 Repeated selection of the same destination returns the current state without duplicating history.
 
+Active hospital query behavior after destination selection:
+
+- the current destination remains visible as `EN_ROUTE`;
+- every other accepted offer is excluded from the hospital active dashboard;
+- hidden accepted offers remain in response history and the paramedic's accepted list;
+- selecting a hidden accepted offer as the new destination makes it active for that hospital again;
+- the previous destination receives the change notification and is removed from its active dashboard.
+
+### 23.1 Transport Cancellation API
+
+```http
+POST /api/v1/transport-requests/{requestId}/cancel
+Idempotency-Key: ...
+
+{
+  "reason": "PATIENT_REFUSED_TRANSPORT"
+}
+```
+
+Cancellation reasons:
+
+```text
+PATIENT_REFUSED_TRANSPORT
+GUARDIAN_SELF_TRANSPORT
+SCENE_RESOLVED
+OTHER
+```
+
+Preconditions:
+
+- request owner paramedic;
+- status is `SEARCHING`, `CANDIDATES_EXHAUSTED`, `ACCEPTED_AVAILABLE`, or `EN_ROUTE`;
+- reason and idempotency key are present.
+
+Atomic effects:
+
+1. lock and recheck request state;
+2. set status `CANCELLED`, reason, actor, and server cancellation time;
+3. clear `currentDestinationOfferId`;
+4. close every active offer while preserving response status and history;
+5. append destination release, audit, and outbox events;
+6. notify every pending or accepted hospital, including hidden accepted offers;
+7. publish `TRANSPORT_REQUEST_CANCELLED` and remove the request from active queries.
+
+Cancellation cannot be resumed. Reject later clinical, location, destination, search-retry, and handoff commands with the existing invalid-state error contract.
+
+Use existing errors:
+
+- missing reason: `COMMON_001`;
+- missing request: `TRANSPORT_001`;
+- wrong owner or role: `AUTH_003`;
+- invalid request state: `TRANSPORT_004`.
+
 ## 24. Latest Location and ETA
 
 ```http
@@ -1015,6 +1116,7 @@ Rules:
 - validate coordinate and accuracy bounds;
 - reject or ignore clearly older updates using captured/server sequence rules;
 - upsert one `LatestLocation` row;
+- store trusted `serverReceivedAt` for stale-state calculation;
 - do not append route points to a history table;
 - audit that an update occurred without copying coordinates into general audit logs;
 - publish exact coordinate event only to current destination hospital.
@@ -1033,6 +1135,16 @@ originCapturedAt
 Provider failure updates availability/metrics but does not fail location storage.
 
 Hospital authorization must be enforced on both REST query and realtime destination topic. A previous destination loses coordinate access immediately after change.
+
+Hospital location responses include:
+
+```text
+status CURRENT | STALE
+lastReceivedAt
+staleAfterSeconds
+```
+
+The default stale threshold is 30 seconds and must be configurable. When stale, return the latest stored coordinate and server receipt time. The next accepted location returns the state to `CURRENT`. Staleness must not raise an error response, urgent event, or audible alert.
 
 ## 25. Handoff
 
@@ -1112,6 +1224,8 @@ GET /api/v1/hospital/history
 
 The hospital request DTO contains only the allowed hospital-facing snapshot. Exact location fields are null/absent unless this offer is the current destination.
 
+The active query excludes accepted offers that are not the current destination once any destination is selected. This is a query/authorization rule, not an offer-status rewrite. The hospital history retains its acceptance record.
+
 ### 27.3 Admin
 
 ```http
@@ -1167,6 +1281,8 @@ Integrate with the existing `global.exception` pattern. Do not leak stack traces
 | Accept/reject offer | no | no | no | yes | no |
 | Withdraw own acceptance | no | no | no | yes | no |
 | Select destination | no | yes | no | no | no |
+| Retry exhausted search | no | yes | no | no | no |
+| Cancel transport before handoff request | no | yes | no | no | no |
 | Read exact current location | no | yes | no | only current destination | no |
 | Request handoff | no | yes | no | no | no |
 | Confirm handoff | no | no | no | current destination only | no |
@@ -1180,7 +1296,10 @@ Critical races:
 - two signups consuming one invitation code;
 - many hospitals accepting simultaneously;
 - expansion job running while first acceptance commits;
+- candidate exhaustion racing with the final hospital acceptance;
+- duplicate search retry creating more than one dispatch attempt;
 - paramedic changing destination while a hospital withdraws;
+- paramedic cancelling while a hospital accepts or destination changes;
 - location event targeting a hospital during destination change;
 - duplicate clinical update retry;
 - duplicate handoff request/confirmation.
@@ -1205,7 +1324,10 @@ Minimum event types:
 TRANSPORT_REQUEST_RECEIVED
 HOSPITAL_OFFER_ACCEPTED
 HOSPITAL_OFFER_REJECTED
+HOSPITAL_OFFER_NO_RESPONSE
 HOSPITAL_ACCEPTANCE_WITHDRAWN
+HOSPITAL_SEARCH_EXHAUSTED
+HOSPITAL_SEARCH_RETRY_STARTED
 DESTINATION_SELECTED
 DESTINATION_CHANGED
 VITAL_SIGNS_ADDED
@@ -1218,6 +1340,7 @@ AMBULANCE_LOCATION_UPDATED
 ETA_UPDATED
 HANDOFF_REQUESTED
 HANDOFF_CONFIRMED
+TRANSPORT_REQUEST_CANCELLED
 TRANSPORT_REQUEST_CLOSED
 ```
 
@@ -1253,8 +1376,10 @@ Audit:
 - organization and account state changes;
 - invitation issue/use/revoke;
 - request creation and search rounds;
+- candidate exhaustion and retry dispatch attempts;
 - offer send/accept/reject/withdraw;
 - destination select/change/release;
+- transport cancellation and cancellation reason;
 - clinical record append/correction;
 - location update occurrence without general-log coordinates;
 - handoff request/confirmation;
@@ -1296,7 +1421,7 @@ Do not copy passwords, invitation plaintext, tokens, direct identifiers, or full
 - database migration tool such as Flyway or Liquibase;
 - health/readiness checks that do not expose secrets;
 - structured logs with non-sensitive correlation IDs;
-- metrics for API latency/error, outbox lag, notification delay, search radius/candidate count, map failures;
+- metrics for API latency/error, outbox lag, notification delay, search radius/candidate count, exhaustion/retry count, stale-location duration, and map failures;
 - alert on stuck outbox events and abnormal offer delivery failures;
 - map/push provider timeout and circuit breaker;
 - backup and restore drills;
@@ -1315,7 +1440,7 @@ Validate targets with load and field tests.
 
 Do not hard-code a guessed legal retention period in domain constants.
 
-- completion removes the request from active queries only;
+- completion and cancellation remove the request from active queries only;
 - retain official/audit data for the approved period;
 - separate retention by clinical, security, invitation, and operational metrics if required;
 - delete or de-identify after expiration;
@@ -1360,14 +1485,22 @@ Do not hard-code a guessed legal retention period in domain constants.
 - all eligible hospitals inside selected radius receive offers
 - 60-second expansion includes only new hospitals
 - first acceptance stops expansion
-- unique constraint prevents duplicate offer
+- unique constraint prevents duplicate offer within one dispatch attempt
 - OFF/inactive/missing-location hospitals excluded
+- final wait or all-rejected result transitions to candidate exhaustion
+- exhaustion retry keeps the request and creates a new dispatch attempt
+- previously rejected and nonresponsive hospitals are eligible in the new attempt
+- duplicate retry is idempotent
+- phone action does not change server state
 - withdrawal re-search uses latest location and excludes contacted hospitals
 
 ### 36.4 Hospital Response
 
 - multiple simultaneous acceptances succeed independently
 - acceptance does not choose destination
+- non-destination accepted offers disappear from hospital active queries
+- hidden acceptance history and paramedic accepted list remain available
+- hidden accepted offer becomes active when selected as the new destination
 - rejection enum and required other detail
 - withdrawal enum remains separate
 - current destination withdrawal clears destination atomically
@@ -1378,9 +1511,12 @@ Do not hard-code a guessed legal retention period in domain constants.
 - only request owner selects accepted offer
 - destination change preserves previous acceptance
 - destination authorization switches atomically
+- previous destination receives change notification and leaves active query
 - previous hospital cannot query exact location
-- stale location ignored/rejected
+- out-of-order older location update ignored/rejected
 - only latest location retained
+- location becomes stale after the configured 30 seconds while the last coordinate remains readable
+- new location clears stale state without an urgent event
 - ETA failure does not fail location/request flow
 
 ### 36.6 Handoff
@@ -1391,7 +1527,17 @@ Do not hard-code a guessed legal retention period in domain constants.
 - duplicate commands are idempotent
 - completion closes active offers and rejects later clinical/location updates
 
-### 36.7 Auth and Privacy
+### 36.7 Transport Cancellation
+
+- cancellation succeeds from every allowed pre-handoff state
+- missing cancellation reason is rejected
+- cancellation clears destination and closes all active offers
+- pending, selected, and hidden accepted hospitals receive cancellation invalidation
+- duplicate cancellation is idempotent
+- handoff-requested, completed, and cancelled requests cannot be cancelled
+- cancelled request cannot be resumed or retried
+
+### 36.8 Auth and Privacy
 
 - admin cannot access any clinical endpoint
 - other paramedic cannot access request
@@ -1400,7 +1546,7 @@ Do not hard-code a guessed legal retention period in domain constants.
 - logs and errors redact clinical payloads and coordinates
 - realtime topic subscription enforces organization and destination scope
 
-### 36.8 Invitation
+### 36.9 Invitation
 
 - plaintext shown only on generation response
 - hash comparison works

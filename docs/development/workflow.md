@@ -28,16 +28,16 @@ Related Issue: GitHub Issue
 
 ## 3. 기능 개발 순서
 
-1. `docs/templates/feature-spec-template.md`를 복사한다.
-2. `docs/features/<기능명>.md`를 만든다.
-3. AI가 요구사항과 기존 컨텍스트를 읽고 초안을 작성한다.
-4. 담당자가 모호한 정책을 `결정 필요` 항목으로 분리한다.
-5. 팀원이 시나리오, 권한, API, 오류 코드를 리뷰한다.
-6. 결정이 끝나면 상태를 `APPROVED`로 바꾼다.
-7. GitHub Issue와 작업 브랜치를 만든다.
-8. 구현과 테스트를 진행한다.
-9. PR에서 코드와 기능 문서를 같이 리뷰한다.
-10. 완료 후 상태를 `IMPLEMENTED`로 바꾼다.
+1. 담당 `docs/domains/<domain>/README.md`에서 기능의 소유 도메인을 확인한다.
+2. `docs/templates/feature/`를 `docs/features/<domain>/<feature>/`로 복사한다.
+3. 기능 `README.md`에 요구사항, 시나리오와 결정 필요 정책을 작성한다.
+4. 팀원이 명세를 리뷰하고 결정이 끝나면 `APPROVED`로 바꾼다.
+5. `plan.md`에 변경 범위와 구현·검증 계획을 작성하고 검토한다.
+6. GitHub Issue와 작업 브랜치를 만든다.
+7. 구현과 테스트를 진행한다.
+8. `implementation.md`에 실제 변경, 계획 차이와 검증 결과를 기록한다.
+9. PR에서 코드와 기능 폴더의 세 문서를 같이 리뷰한다.
+10. 완료 후 기능 `README.md` 상태를 `IMPLEMENTED`로 바꾼다.
 
 ## 4. AI 작업 입력 순서
 
@@ -46,9 +46,12 @@ AI에게 다음 문서를 순서대로 제공합니다.
 1. `docs/requirements/product-requirements.md`
 2. `docs/ai/project-context.md`
 3. 담당 영역의 AI 컨텍스트
-4. 해당 기능 명세
-5. `docs/development/conventions.md`
-6. `docs/development/error-codes.md`
+4. `docs/development/conventions.md`
+5. 담당 `docs/domains/<domain>/README.md`
+6. 해당 기능 폴더의 `README.md`
+7. 구현 전에는 해당 기능의 `plan.md`
+8. 리뷰 시에는 해당 기능의 `implementation.md`
+9. `docs/development/error-codes.md`
 
 AI에게 구현을 요청할 때는 다음을 명시합니다.
 
@@ -75,13 +78,13 @@ AI에게 구현을 요청할 때는 다음을 명시합니다.
 
 ### 병원 수락 기능
 
-1. 담당자가 `docs/features/hospital-offer-response.md`를 만든다.
-2. AI가 병원 수락·거절 시나리오와 API 초안을 작성한다.
+1. 담당자가 `docs/features/transport/hospital-offer-response/`를 만든다.
+2. AI가 `README.md`에 병원 수락·거절 시나리오와 API 초안을 작성한다.
 3. 팀은 여러 병원이 동시에 수락할 수 있다는 정책을 확인한다.
-4. 팀은 `HOSPITAL_OFFER_ALREADY_DECIDED` 오류 발생 조건을 확정한다.
-5. 문서 상태를 `APPROVED`로 변경한다.
+4. 팀은 오류 발생 조건을 확정하고 명세를 `APPROVED`로 변경한다.
+5. AI가 `plan.md`에 동시 수락과 중복 응답 검증 계획을 작성한다.
 6. `feature/hospital-offer-response` 브랜치에서 구현한다.
-7. 동시 수락과 중복 응답 테스트를 포함해 PR을 만든다.
+7. `implementation.md`에 실제 구현과 테스트 결과를 기록해 PR에 포함한다.
 
 ## 7. 브랜치와 커밋
 
@@ -141,3 +144,16 @@ feature 브랜치 개발
 ```
 
 `main`에는 직접 push하지 않습니다. GitHub branch protection에서 PR과 Backend CI 통과를 필수로 설정합니다.
+
+현재 GitHub Ruleset 계약:
+
+- `main` 변경은 Pull Request로만 병합한다.
+- 필수 상태 체크의 실제 context는 `verify`다.
+- GitHub 화면에는 `Backend CI / verify (pull_request)`로 표시될 수 있다.
+- 현재 1인 개발 단계의 필수 승인 수는 0명이다.
+- 쓰기 권한을 가진 팀 리뷰어가 합류하면 필수 승인 수를 1명으로 변경한다.
+- 리뷰 대화가 남아 있으면 병합하지 않는다.
+- 병합 방식은 squash만 허용한다.
+- 브랜치 삭제와 force push를 차단한다.
+
+Ruleset에 화면 표시 문자열인 `Backend CI / verify`를 직접 context로 등록하면 성공한 `verify` 작업과 다른 체크로 인식될 수 있습니다.

@@ -5,7 +5,9 @@
 1. `docs/README.md`를 먼저 읽는다.
 2. 작업 영역에 맞는 `docs/ai/` 컨텍스트를 읽는다.
 3. `docs/development/conventions.md`를 따른다.
-4. 기능 구현 전 `docs/features/`의 승인된 명세를 확인한다.
+4. 담당 `docs/domains/<domain>/README.md`에서 책임과 경계를 확인한다.
+5. 기능 작업은 `docs/features/AGENTS.md`와 해당 기능 폴더를 읽는다.
+6. 기능 구현 전 해당 기능의 `README.md`가 `APPROVED`인지 확인한다.
 
 ## 구현
 
@@ -18,9 +20,12 @@
 
 ## 문서
 
-- 기능 단위 작업은 `docs/templates/feature-spec-template.md`로 시작한다.
+- 기능 단위 작업은 `docs/templates/feature/`의 세 파일을 복사해 시작한다.
+- 기능 문서는 `docs/features/<domain>/<feature>/`에 둔다.
+- `README.md`에는 명세, `plan.md`에는 구현·검증 계획, `implementation.md`에는 실제 변경·검증 결과를 기록한다.
 - 팀 리뷰 전 상태는 `DRAFT` 또는 `REVIEW`로 둔다.
 - 정책이 확정된 기능만 `APPROVED`로 변경한다.
+- AI 내부 사고 과정과 개발 일기는 문서에 기록하지 않는다.
 - 루트 `README.md`는 간결하게 유지한다.
 
 ## 완료

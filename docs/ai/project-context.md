@@ -2,7 +2,7 @@
 
 - Audience: any AI agent working on this repository
 - Status: MVP source of truth
-- Updated: 2026-07-17
+- Updated: 2026-07-25
 
 ## 1. Product Mission
 
@@ -42,6 +42,10 @@ Organization types are `HOSPITAL` and `EMS_UNIT`.
 9. Exact live location is visible only to the current destination hospital.
 10. Patient name, resident registration number, contact, exact birth date, and detailed home address are not collected or shared in MVP.
 11. Completion requires a paramedic request and current destination hospital confirmation.
+12. After destination selection, non-destination accepted offers disappear from hospital active dashboards but remain in response history and the paramedic's accepted list.
+13. The request owner may cancel before handoff is requested, with a mandatory cancellation reason. Cancellation is terminal.
+14. Exhausted hospital search may be retried on the same request and may contact previously rejected or nonresponsive hospitals in a new dispatch attempt.
+15. A destination hospital keeps the last location when updates stop and sees a stale age after 30 seconds by default.
 
 ## 5. Account and Invitation Policy
 
@@ -325,7 +329,7 @@ Each accepted update:
 
 Hospital users cannot edit paramedic clinical records.
 
-Clinical summary recipients are hospitals with an open `PENDING` or `ACCEPTED` offer. Stop delivery after rejection, withdrawal, or request closure. Exact location remains restricted to the current destination hospital.
+Clinical summary recipients are hospitals with an open `PENDING` offer and, before destination selection, hospitals with an open `ACCEPTED` offer. After destination selection, only the current destination receives later clinical updates among accepted hospitals. Stop delivery after rejection, withdrawal, cancellation, completion, or active-view closure caused by selecting another hospital. Exact location remains restricted to the current destination hospital.
 
 ## 10. Hospital Search Policy
 
@@ -345,14 +349,26 @@ Eligible hospital:
 - registered and active hospital organization
 - valid ER coordinates
 - receiving state `ON`
-- not previously contacted for this request
+- not previously contacted in the current dispatch attempt
 - not excluded after acceptance withdrawal
 
 Initial search expands immediately by 10km until at least three candidates exist or 100km is reached. Send to every eligible hospital inside the selected radius.
 
 If no hospital accepts for 60 seconds, expand by 10km and send only to newly included hospitals. Stop automatic expansion on the first acceptance.
 
-No hospital receives the same request twice.
+Within one dispatch attempt, no hospital receives the same request twice.
+
+When the maximum radius has been contacted and no hospital accepts:
+
+- transition to `CANDIDATES_EXHAUSTED` after the final 60-second response window;
+- transition immediately when every contacted hospital has rejected before that window ends;
+- transition immediately when no eligible hospital exists inside the maximum radius;
+- show rejected and nonresponsive outcomes explicitly;
+- retain the same request, patient records, search rounds, and offer history.
+
+The paramedic may retry delivery on the same request. A retry creates a new dispatch attempt and returns the request to `SEARCHING`. Hospitals that rejected or did not respond in an earlier attempt are eligible again. Create new offers for the new attempt; do not mutate earlier response history.
+
+The paramedic may also start a phone call from a candidate hospital's registered ER contact. A phone call is outside the system and never changes request or offer state automatically.
 
 ## 11. Hospital Response Policy
 
@@ -409,24 +425,58 @@ The paramedic may select another accepted offer. On change:
 - notify the new hospital that the ambulance is en route;
 - notify the previous destination that it is no longer selected;
 - keep both acceptance records;
+- remove every non-destination accepted offer from hospital active dashboards;
+- retain non-destination accepted offers in the paramedic's accepted list and hospital response history;
+- restore the selected hospital's active card if a previously hidden accepted hospital becomes the new destination;
 - stop exact location delivery to the previous destination.
 
-## 13. Location and ETA
+## 13. Transport Cancellation
+
+The request owner paramedic may cancel after request creation and before `HANDOFF_REQUESTED`.
+
+Mandatory reason:
+
+```text
+PATIENT_REFUSED_TRANSPORT
+GUARDIAN_SELF_TRANSPORT
+SCENE_RESOLVED
+OTHER
+```
+
+Cancellation:
+
+- is allowed from `SEARCHING`, `CANDIDATES_EXHAUSTED`, `ACCEPTED_AVAILABLE`, or `EN_ROUTE`;
+- sets the request to `CANCELLED` and records actor, reason, and server time;
+- clears the current destination;
+- closes active offers without erasing their response history;
+- notifies every pending or accepted hospital, including accepted hospitals already hidden from the active dashboard;
+- removes the request from every hospital active dashboard and the paramedic active flow;
+- rejects resume and later clinical, location, destination, retry-search, or handoff commands.
+
+If transport becomes necessary again, create a new request.
+
+## 14. Location and ETA
 
 - mobile sends location around every 10 seconds while en route;
 - server keeps latest location only, not route history;
 - exact location is delivered only to current destination hospital;
+- the destination keeps displaying the latest stored position when updates stop;
+- location becomes `STALE` when no new server receipt occurs for 30 seconds by default;
+- return `lastReceivedAt` and a server-derived stale state so the client can show `마지막 수신 N초/분 전`;
+- a new location automatically returns the state to current;
+- stale location is an operational state, not an error or urgent alert;
 - map API calculates distance and ETA;
 - ETA response includes calculation time and provider status;
 - map failure returns `UNAVAILABLE` and never blocks clinical request flow;
 - stale successful ETA may be shown only with its calculation time.
 
-## 14. Request State Model
+## 15. Request State Model
 
 Suggested `TransportRequestStatus`:
 
 ```text
 SEARCHING
+CANDIDATES_EXHAUSTED
 ACCEPTED_AVAILABLE
 EN_ROUTE
 HANDOFF_REQUESTED
@@ -440,12 +490,13 @@ Suggested `HospitalOfferStatus`:
 PENDING
 ACCEPTED
 REJECTED
+NO_RESPONSE
 ACCEPTANCE_WITHDRAWN
 ```
 
 Destination is represented separately by `TransportRequest.currentDestinationOfferId` and immutable destination events. Offer closure is represented by `closedAt` and the request state. Offer response history should be event/audit based. Do not erase earlier statuses.
 
-## 15. Handoff Completion
+## 16. Handoff Completion
 
 1. paramedic requests completion;
 2. request becomes `HANDOFF_REQUESTED`;
@@ -456,20 +507,23 @@ Destination is represented separately by `TransportRequest.currentDestinationOff
 
 Repeated commands must be idempotent.
 
-## 16. Emergency Department Receiving State
+## 17. Emergency Department Receiving State
 
 - `ON`: eligible for new requests
 - `OFF`: excluded from new requests
 - changing to OFF does not affect accepted or en-route cases
 - changing to OFF does not imply acceptance withdrawal
 
-## 17. Realtime Event Minimum
+## 18. Realtime Event Minimum
 
 ```text
 TRANSPORT_REQUEST_RECEIVED
 HOSPITAL_OFFER_ACCEPTED
 HOSPITAL_OFFER_REJECTED
+HOSPITAL_OFFER_NO_RESPONSE
 HOSPITAL_ACCEPTANCE_WITHDRAWN
+HOSPITAL_SEARCH_EXHAUSTED
+HOSPITAL_SEARCH_RETRY_STARTED
 DESTINATION_SELECTED
 DESTINATION_CHANGED
 VITAL_SIGNS_ADDED
@@ -482,12 +536,13 @@ AMBULANCE_LOCATION_UPDATED
 ETA_UPDATED
 HANDOFF_REQUESTED
 HANDOFF_CONFIRMED
+TRANSPORT_REQUEST_CANCELLED
 TRANSPORT_REQUEST_CLOSED
 ```
 
 Use transactional outbox delivery. Realtime events are hints; clients must refetch authoritative state after reconnect.
 
-## 18. Security and Audit
+## 19. Security and Audit
 
 - TLS for all traffic
 - role and organization authorization on every endpoint
@@ -497,23 +552,24 @@ Use transactional outbox delivery. Realtime events are hints; clients must refet
 - hash passwords and invitation codes
 - exact location restricted to current destination hospital
 - audit actor, organization, action, server time, entity, before/after or event payload, and reason
+- audit search exhaustion, retry dispatch attempts, transport cancellation, and cancellation reason
 - use correlation IDs that do not contain patient data
 
 Retention periods require legal validation. Completion means hidden from active views, not physical deletion.
 
-## 19. Reliability and Performance Targets
+## 20. Reliability and Performance Targets
 
 - idempotency key for request creation and all critical commands
-- optimistic/pessimistic concurrency guard for offer response and destination change
+- optimistic/pessimistic concurrency guard for offer response, destination change, search retry, and cancellation
 - normal API p95 target: 1 second
 - server-to-client response notification target: 3 seconds
 - reconnect and catch-up for realtime clients
 - retry external map and push providers with bounded backoff
-- monitor outbox lag, notification delay, search radius, candidate count, and map failures
+- monitor outbox lag, notification delay, search radius, candidate count, exhausted/retry counts, stale-location duration, and map failures
 
 Targets must be validated by load and field tests.
 
-## 20. Conflict Resolution for Agents
+## 21. Conflict Resolution for Agents
 
 If older notes conflict with this document, follow these resolutions:
 
@@ -521,13 +577,18 @@ If older notes conflict with this document, follow these resolutions:
 - initial hospital recipients are automatic, not manually selected;
 - multiple hospitals can accept; one acceptance does not cancel others;
 - destination is chosen by the paramedic;
+- selecting a destination hides other accepted offers from hospital active dashboards but keeps their history and the paramedic's accepted list;
+- cancellation before handoff request is terminal and requires a reason;
+- retry after candidate exhaustion keeps the same request but creates a new dispatch attempt;
+- phone acceptance does not change application state automatically;
+- stale location remains visible with elapsed-time text and is not an error;
 - ETA is map-derived, not manually entered;
 - situation-room features are future scope;
 - shared hospital responses record account, hospital, and server time, not a responder personal name;
 - initial rejection reasons and post-acceptance withdrawal reasons are separate;
 - no patient direct identifiers are shared after acceptance in MVP.
 
-## 21. Out of MVP
+## 22. Out of MVP
 
 - realtime hospital bed/OR/staff/equipment integration
 - public emergency-data auto-sync
@@ -539,7 +600,7 @@ If older notes conflict with this document, follow these resolutions:
 - automatic final hospital assignment
 - complex password/account recovery
 
-## 22. Required Tests
+## 23. Required Tests
 
 At minimum test:
 
@@ -549,16 +610,22 @@ At minimum test:
 - append-only updates and correction history
 - measured/client/server timestamp separation
 - unauthorized hospital clinical access
-- search radius expansion and no duplicate offer
+- search radius expansion and no duplicate offer within one dispatch attempt
+- candidate exhaustion after final wait or early all-rejected result
+- retry on the same request with new offers for previously rejected or nonresponsive hospitals
+- phone action without automatic state transition
 - simultaneous hospital acceptance
 - atomic destination change
+- non-destination accepted hospital card hidden while response history remains
 - current destination withdrawal and re-search
+- cancellation from each allowed state, mandatory reason, notification, destination release, and terminal behavior
 - ETA failure without request failure
 - exact location access restrictions
+- stale location after 30 seconds and automatic recovery on the next update
 - duplicate completion commands
 - offline create retry with one server request
 
-## 23. External Validation Required
+## 24. External Validation Required
 
 Before production, verify:
 
@@ -569,7 +636,7 @@ Before production, verify:
 - distance policy suitability by region
 - fallback process during network failure
 
-## 24. Reference Basis
+## 25. Reference Basis
 
 - [National Fire Agency field emergency treatment guideline](https://www.nfa.go.kr/nfa/publicrelations/legalinformation/archives/?cntId=50&mode=view)
 - [Korean prehospital emergency-patient severity classification standard](https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000270800&chrClsCd=010201)
