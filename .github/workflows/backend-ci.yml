@@ -29,4 +29,8 @@ jobs:
               run: ./gradlew clean check
 
             - name: Build Docker image
-              run: docker build --tag ersync-api:pr-${{ github.event.pull_request.number }} .
+              run: |
+                  docker build \
+                      --build-arg GIT_SHA="${{ github.sha }}" \
+                      --tag ersync-api:pr-${{ github.event.pull_request.number }} \
+                      .

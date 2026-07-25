@@ -56,6 +56,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/api/system/health",
+                                "/api/system/version",
                                 "/actuator/health",
                                 "/actuator/health/**"
                         ).permitAll()

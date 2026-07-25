@@ -103,6 +103,14 @@ Service, DB migration처럼 구현 계층만 기준으로 PR을 잘게 나누지
 기능 브랜치 push와 PR 생성만으로는 EC2가 변경되지 않습니다. `main` 병합 후
 배포가 시작되며, readiness가 실패하면 배포 workflow가 이전 이미지로 복구합니다.
 
+배포 후 실행 중인 `main` 커밋은 다음 API로 확인합니다.
+
+```bash
+curl http://<Elastic-IP>/api/system/version
+```
+
+응답의 `commitSha`를 GitHub `main` 최신 커밋과 비교합니다.
+
 ## 문서
 
 | 대상 | 문서 |
