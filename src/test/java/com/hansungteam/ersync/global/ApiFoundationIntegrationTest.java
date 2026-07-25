@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = "ersync.build.commit-sha=test-commit-sha")
 @AutoConfigureMockMvc
 @Import(ApiFoundationIntegrationTest.FoundationTestController.class)
 @ExtendWith(OutputCaptureExtension.class)
@@ -48,6 +48,14 @@ class ApiFoundationIntegrationTest {
         mockMvc.perform(get("/api/system/health"))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("X-Trace-Id"));
+    }
+
+    @Test
+    void versionEndpointIsPublicAndReturnsInjectedCommitSha() throws Exception {
+        mockMvc.perform(get("/api/system/version"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("X-Trace-Id"))
+                .andExpect(jsonPath("$.commitSha").value("test-commit-sha"));
     }
 
     @Test

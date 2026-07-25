@@ -39,6 +39,8 @@ RUN ./gradlew clean bootJar --no-daemon
 
 FROM eclipse-temurin:25-jre-jammy@sha256:b8ba5fca9d88b6ecc3a46c8e75b744f84aca9a9d08587901b5ab480baf641ab5
 
+ARG GIT_SHA=local
+
 RUN groupadd --gid 10001 ersync \
     && useradd \
         --uid 10001 \
@@ -55,6 +57,7 @@ WORKDIR /app
 COPY --from=builder --chown=root:root --chmod=0444 /workspace/build/libs/*.jar app.jar
 COPY --from=builder --chown=root:root --chmod=0444 /tmp/rds-truststore.p12 /app/certs/rds-truststore.p12
 
+ENV ERSYNC_GIT_SHA="${GIT_SHA}"
 ENV JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStore=/app/certs/rds-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12"
 
 USER ersync

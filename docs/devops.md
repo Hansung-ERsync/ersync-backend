@@ -146,7 +146,7 @@ Pull Request 생성
 main 브랜치 병합
 → GitHub Actions가 OIDC 권한 획득
 → Gradle 검사
-→ Docker 이미지 빌드
+→ Git SHA를 주입해 Docker 이미지 빌드
 → Git SHA 태그로 ECR push
 → SSM Run Command로 EC2에 배포 명령 전달
 → EC2가 새 이미지 pull
@@ -166,6 +166,8 @@ main 브랜치 병합
 - readiness 경로는 `/actuator/health/readiness`다.
 - readiness에는 Spring Boot 상태와 DB 연결 상태를 포함한다.
 - readiness 대기 시간은 최대 90초다.
+- 배포 버전 경로는 `/api/system/version`이다.
+- 버전 응답의 `commitSha`는 Docker 빌드 시 주입한 `main` Git SHA다.
 - Docker 로그는 파일당 10MB, 최대 3개로 순환한다.
 - 배포 태그로 `latest`를 허용하지 않는다.
 - 배포 스크립트는 EC2의 `/usr/local/bin/ersync-deploy`에 설치된다.
