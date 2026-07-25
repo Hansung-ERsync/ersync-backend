@@ -111,3 +111,33 @@ docs/transport-request-spec
 ```
 
 `main`은 항상 테스트와 Docker 빌드가 가능한 상태를 유지합니다.
+
+## 8. 로컬 개발과 dev 배포
+
+로컬 개발자는 RDS에 직접 연결하지 않습니다. 기능 브랜치에서는 Docker MySQL과 `local` profile을 사용합니다.
+
+```bash
+docker compose up -d
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+```
+
+검사는 다음 명령으로 통일합니다.
+
+```bash
+./gradlew clean check
+```
+
+협업 흐름:
+
+```text
+feature 브랜치 개발
+→ 로컬 Docker MySQL로 테스트
+→ PR 생성
+→ Backend CI 통과
+→ main merge
+→ ECR push
+→ EC2 자동 배포
+→ RDS readiness 확인
+```
+
+`main`에는 직접 push하지 않습니다. GitHub branch protection에서 PR과 Backend CI 통과를 필수로 설정합니다.

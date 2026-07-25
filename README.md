@@ -12,13 +12,11 @@
 
 ## 실행
 
-로컬 MySQL에 `ersync` 데이터베이스와 개발 계정을 준비한 뒤 실행합니다.
+로컬 개발은 Docker MySQL을 사용합니다. RDS는 EC2에 배포된 dev 서버만 사용합니다.
 
 ```bash
-SPRING_DATASOURCE_URL='jdbc:mysql://127.0.0.1:3306/ersync?sslMode=DISABLED' \
-SPRING_DATASOURCE_USERNAME='local_user' \
-SPRING_DATASOURCE_PASSWORD='local_password' \
-./gradlew bootRun
+docker compose up -d
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
 검사:

@@ -1408,7 +1408,19 @@ Do not hard-code a guessed legal retention period in domain constants.
 - concurrent signup consumes once
 - role/organization binding cannot be changed by request
 
-## 37. Suggested Implementation Order
+## 37. Development Environment Contract
+
+- local development uses Docker MySQL and the `local` Spring profile.
+- local run command: `docker compose up -d`, then `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`.
+- local DB uses `127.0.0.1:3306`, database `ersync`, and account `ersync_local`.
+- local developers must not connect directly to RDS.
+- the `test` profile remains for fast H2-based tests.
+- MySQL compatibility is validated with Testcontainers MySQL 8.4 tests.
+- frontend local dev servers call the shared dev API through configured CORS origins.
+- do not create branch-specific AWS environments for MVP development.
+- merge to `main` only after PR review and Backend CI success.
+
+## 38. Suggested Implementation Order
 
 1. Add persistence, validation, migration, and test dependencies.
 2. Implement account, organization, invitation, and security boundaries.
@@ -1425,7 +1437,7 @@ Do not hard-code a guessed legal retention period in domain constants.
 
 Do not start with realtime transport before the transactional domain state is reliable.
 
-## 38. Out of MVP
+## 39. Out of MVP
 
 - hospital internal bed/OR/staff/equipment integration
 - public emergency-data synchronization
@@ -1439,7 +1451,7 @@ Do not start with realtime transport before the transactional domain state is re
 - automatic final hospital assignment
 - complex account recovery
 
-## 39. External Validation Required
+## 40. External Validation Required
 
 - current official Pre-KTAS algorithm and version
 - assessor qualifications and responsibility
