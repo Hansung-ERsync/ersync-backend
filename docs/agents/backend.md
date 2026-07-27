@@ -1744,8 +1744,13 @@ Current error registry:
 | AUTH | `AUTH_001` | 401 | missing authentication |
 | AUTH | `AUTH_002` | 401 | invalid or expired access token |
 | AUTH | `AUTH_003` | 403 | missing role or permission |
+| AUTH | `AUTH_004` | 401 | login ID or password mismatch |
 | USER | `USER_001` | 404 | user account not found |
 | USER | `USER_002` | 403 | disabled account |
+| ORGANIZATION | `ORGANIZATION_001` | 404 | organization not found |
+| ORGANIZATION | `ORGANIZATION_002` | 409 | organization inactive |
+| INVITATION | `INVITATION_001` | 409 | invitation code unavailable, expired, used, or revoked |
+| INVITATION | `INVITATION_002` | 409 | invitation target role does not match organization type |
 | HOSPITAL | `HOSPITAL_001` | 404 | hospital not found |
 | HOSPITAL | `HOSPITAL_002` | 409 | hospital cannot receive the request |
 | HOSPITAL | `HOSPITAL_003` | 409 | receiving state cannot be confirmed |

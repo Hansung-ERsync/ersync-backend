@@ -28,12 +28,29 @@ public enum ErrorCode {
     AUTH_AUTHENTICATION_REQUIRED("AUTH_001", "인증이 필요합니다.", HttpStatus.UNAUTHORIZED),
     AUTH_ACCESS_TOKEN_INVALID("AUTH_002", "유효하지 않은 Access 토큰입니다.", HttpStatus.UNAUTHORIZED),
     AUTH_ROLE_REQUIRED("AUTH_003", "해당 역할만 사용할 수 있는 기능입니다.", HttpStatus.FORBIDDEN),
+    AUTH_LOGIN_FAILED("AUTH_004", "아이디 또는 비밀번호가 올바르지 않습니다.", HttpStatus.UNAUTHORIZED),
 
     /*
      * 사용자 오류
      */
     USER_NOT_FOUND("USER_001", "사용자를 찾을 수 없습니다.", HttpStatus.NOT_FOUND),
     USER_INACTIVE("USER_002", "비활성화된 사용자입니다.", HttpStatus.FORBIDDEN),
+
+    /*
+     * 조직 오류
+     */
+    ORGANIZATION_NOT_FOUND("ORGANIZATION_001", "조직을 찾을 수 없습니다.", HttpStatus.NOT_FOUND),
+    ORGANIZATION_INACTIVE("ORGANIZATION_002", "비활성화된 조직입니다.", HttpStatus.CONFLICT),
+
+    /*
+     * 가입 코드 오류
+     */
+    INVITATION_CODE_UNAVAILABLE("INVITATION_001", "사용할 수 없는 가입 코드입니다.", HttpStatus.CONFLICT),
+    INVITATION_ROLE_ORGANIZATION_MISMATCH(
+            "INVITATION_002",
+            "조직 유형과 가입 대상 역할이 일치하지 않습니다.",
+            HttpStatus.CONFLICT
+    ),
 
     /*
      * 병원 오류
