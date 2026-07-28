@@ -66,8 +66,8 @@ class AccountOrganizationInvitationSecurityIntegrationTest {
         mockMvc.perform(get("/api/v1/admin/invitation-codes")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].status").value("AVAILABLE"))
                 .andExpect(jsonPath("$[0].plaintextCode").doesNotExist())
+                .andExpect(content().string(containsString("\"status\":\"AVAILABLE\"")))
                 .andExpect(content().string(not(containsString(invitationCode))));
 
         assertThat(invitationCodeRepository.findAll().getFirst().codeHash()).doesNotContain(invitationCode);
