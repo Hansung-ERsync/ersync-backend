@@ -4,12 +4,14 @@
 Feature:
 Implemented By:
 Related PR:
-Frontend Impact: YES / NONE
-Frontend Contract: docs/contracts/{번호}-{기능명}.md / NONE
+Frontend Impact: FLUTTER_PARAMEDIC / REACT_HOSPITAL_ADMIN / BOTH / NONE
+Flutter Handoff: docs/handoffs/{번호}-{기능명}/flutter-paramedic.md / NONE
+React Handoff: docs/handoffs/{번호}-{기능명}/react-hospital-admin.md / NONE
 ```
 
-> 1페이지 이내. 한 PR에서 기능이 완성됐는지 검수자가 이 문서만으로
-> 1차 판단할 수 있어야 합니다.
+> AI가 실제 코드와 테스트 결과를 기준으로 작성합니다.
+> 구현 완료 직후 작성하며 별도의 구현 승인 단계로 사용하지 않습니다.
+> 사람은 애자일 주기 종료 시 완료된 review 문서를 모아 검수할 수 있습니다.
 
 ## 구현 요약
 
@@ -28,23 +30,15 @@ Frontend Contract: docs/contracts/{번호}-{기능명}.md / NONE
 | API | 없음 |  |
 | DB | 없음 |  |
 
-## 프론트엔드 전달
+## Spec 이후 변경
 
-| 영향 | 계약 |
-|---|---|
-| `YES / NONE` | `docs/contracts/{번호}-{기능명}.md / NONE` |
-
-## Spec 이후 정책 변경
-
-> 구현 중 새 정책 쟁점을 발견했다면 구현을 멈추고 spec 갱신과 팀 재확인을
-> 마친 뒤 작업을 재개합니다. 변경이 없으면 `- 없음`으로 작성합니다.
-
-- 없음
+- 제품 정책 변경: 없음
+- 구현 중 추가된 설계 결정: 없음
 
 ## 범위 확인
 
-- spec 범위를 넘어 추가한 작업: 없음
-- 의도적으로 제외한 후속 작업: 없음
+- spec 밖 추가 작업: 없음
+- 의도적으로 제외한 작업: 없음
 
 ## 테스트 결과
 
@@ -52,13 +46,17 @@ Frontend Contract: docs/contracts/{번호}-{기능명}.md / NONE
 |---|---|---|
 | `./gradlew clean check` | PASS / FAIL |  |
 | local 실행·readiness | PASS / FAIL / N/A |  |
+| 주요 기능 시나리오 | PASS / FAIL |  |
+
+## 프론트 핸드오프
+
+| 대상 | 문서 | 실제 코드와 일치 |
+|---|---|---|
+| Flutter 구급대원 앱 | `경로 / NONE` | YES / N/A |
+| React 병원·관리자 웹 | `경로 / NONE` | YES / N/A |
 
 ## 남은 리스크
 
 | 리스크 | 영향 | 대응 |
 |---|---|---|
 | 없음 |  |  |
-
-## 다음 작업 추천
-
-1.

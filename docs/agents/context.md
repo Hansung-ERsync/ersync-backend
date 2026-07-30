@@ -19,7 +19,7 @@ The product supports communication. It does not replace medical judgment, offici
 - Hospital client: React web app planned
 - Admin client: React web app planned
 - Backend: Java and Spring Boot
-- Realtime: WebSocket or SSE plus push notification fallback
+- Realtime: delivery method is selected per feature; clients must recover by refetching authoritative state
 - Map: external geocoding, distance, and ETA API
 
 ## 3. MVP Actors
@@ -326,7 +326,7 @@ Each accepted update:
 1. validates ownership and request state;
 2. appends a new immutable record;
 3. rebuilds the current snapshot;
-4. writes an outbox event in the same transaction;
+4. records the notification intent in a transactionally safe way;
 5. notifies authorized hospital clients;
 6. retains previous values in the clinical timeline.
 
@@ -543,7 +543,9 @@ TRANSPORT_REQUEST_CANCELLED
 TRANSPORT_REQUEST_CLOSED
 ```
 
-Use transactional outbox delivery. Realtime events are hints; clients must refetch authoritative state after reconnect.
+Realtime events are hints; clients must refetch authoritative state after reconnect.
+The backend engineer selects the persistence and delivery mechanism for each feature
+and records the choice in its implementation document.
 
 ## 19. Security and Audit
 
@@ -568,7 +570,7 @@ Retention periods require legal validation. Completion means hidden from active 
 - server-to-client response notification target: 3 seconds
 - reconnect and catch-up for realtime clients
 - retry external map and push providers with bounded backoff
-- monitor outbox lag, notification delay, search radius, candidate count, exhausted/retry counts, stale-location duration, and map failures
+- monitor event delivery delay, search radius, candidate count, exhausted/retry counts, stale-location duration, and map failures
 
 Targets must be validated by load and field tests.
 

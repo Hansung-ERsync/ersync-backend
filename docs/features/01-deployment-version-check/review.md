@@ -5,7 +5,8 @@ Feature: deployment-version-check
 Implemented By: Codex
 Related PR: [#2](https://github.com/Hansung-ERsync/ersync-backend/pull/2)
 Frontend Impact: NONE
-Frontend Contract: NONE
+Flutter Handoff: NONE
+React Handoff: NONE
 ```
 
 ## 구현 요약
@@ -30,11 +31,12 @@ Frontend Contract: NONE
 | API | `GET /api/system/version` | 기존 API 변경 없는 추가 API |
 | DB | 없음 | 영향 없음 |
 
-## 프론트엔드 전달
+## 프론트 핸드오프
 
-| 영향 | 계약 |
+| 대상 | 문서 |
 |---|---|
-| `NONE` | `NONE` |
+| Flutter 구급대원 앱 | `NONE` |
+| React 병원·관리자 웹 | `NONE` |
 
 ## Spec 이후 정책 변경
 
@@ -58,7 +60,3 @@ Frontend Contract: NONE
 | 리스크 | 영향 | 대응 |
 |---|---|---|
 | 배포 성공 후에도 사람이 SHA를 비교해야 함 | 확인 누락 가능 | 필요할 때 배포 스크립트 자동 비교 추가 |
-
-## 다음 작업 추천
-
-1. 필요할 때 배포 스크립트에 SHA 자동 비교를 추가합니다.

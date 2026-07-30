@@ -6,6 +6,7 @@ Domain: system
 Owner: backend
 Related Issue: NONE
 Frontend Impact: NONE
+Policy Decision Status: RESOLVED
 ```
 
 > `main`에 병합된 커밋이 EC2에서 실행 중인지 브라우저나 curl로 확인하는
@@ -47,7 +48,7 @@ Frontend Impact: NONE
 - [x] 인증 없이 버전 API를 호출해 주입된 SHA를 확인할 수 있음
 - [x] 로컬·통합·Docker 검증을 통과함
 
-## 확정 정책
+## 기능 내 결정 사항
 
 | 쟁점 | 최종 결정 | 결정 이유·영향 |
 |---|---|---|
@@ -55,14 +56,11 @@ Frontend Impact: NONE
 | 기준 SHA | `main` push workflow의 `github.sha` | squash merge 후 실제 배포된 커밋과 일치 |
 | 자동 비교 | 이번 기능에서 제외 | 우선 사람이 버전 API로 확인하는 최소 범위 구현 |
 
-## 결정 필요 사항
+## 확인 필요 사항
 
 - 없음
 
-## 구현 전 확인
+## 진행 기준
 
-- [x] AI 또는 작성자가 기존 요구사항과의 충돌·미확정 정책을 검토함
-- [x] 팀에서 목적, 시나리오, API, 권한, 오류와 완료 조건을 검토함
-- [x] 최종 결정을 `확정 정책`에 반영했고 `결정 필요 사항`이 없음
-
-세 항목을 모두 확인했으므로 `implementation.md` 계획에 따라 구현합니다.
+`Policy Decision Status`가 `RESOLVED`이고 결정 내용을 반영했으므로
+`implementation.md` 계획에 따라 구현했습니다.

@@ -3,7 +3,7 @@
 ```text
 Feature: deployment-version-check
 Author: Codex
-Frontend Contract: NONE
+Handoff Targets: NONE
 ```
 
 > 공개 버전 API와 Docker 빌드 SHA 주입을 한 PR에서 완성합니다.
@@ -44,7 +44,8 @@ Frontend Contract: NONE
 ## 프론트엔드 전달
 
 - 영향: `NONE`
-- 계약: `NONE`
+- Flutter 핸드오프: `NONE`
+- React 핸드오프: `NONE`
 - 사용 대상: 개발자와 운영자
 
 ## 건드리면 안 되는 계약
