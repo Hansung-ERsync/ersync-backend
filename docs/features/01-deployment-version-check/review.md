@@ -3,7 +3,7 @@
 ```text
 Feature: deployment-version-check
 Implemented By: Codex
-Related PR:
+Related PR: [#2](https://github.com/Hansung-ERsync/ersync-backend/pull/2)
 Frontend Impact: NONE
 Frontend Contract: NONE
 ```

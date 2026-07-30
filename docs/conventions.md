@@ -171,16 +171,6 @@ selectDestination_otherOrganization_forbidden
 - 브랜치 이름은 `{유형}/{짧은-kebab-case-목적}` 형식으로 작성한다.
 - 브랜치 유형은 PR의 주된 유형과 일치시키고 목적은 영문 소문자 kebab-case로 작성한다.
 
-브랜치 예시:
-
-```text
-feature/admin-invitation-code
-fix/expired-invitation-validation
-refactor/invitation-validation
-chore/update-pr-template
-docs/hospital-acceptance-policy
-```
-
 작업 시작:
 
 ```bash
@@ -208,12 +198,12 @@ git switch -c feature/next-feature
   같은 브랜치에서 완료한다.
 - 다음 브랜치 생성 전 로컬 `main`과 `origin/main`의 일치 여부를 확인한다.
 
-| 유형 | 사용 기준 | 커밋·PR 제목 예시 |
-|---|---|---|
-| `feature` | 사용자 기능 추가 | `[feature] 초대 코드 발급 기능 추가` |
-| `fix` | 잘못된 동작 수정 | `[fix] 만료 코드 검증 오류 수정` |
-| `refactor` | 동작 변경 없는 구조 개선 | `[refactor] 초대 코드 검증 책임 분리` |
-| `chore` | 설정, 빌드, 운영 변경 | `[chore] PR 템플릿 개선` |
-| `docs` | 문서만 변경 | `[docs] 병원 수락 정책 보완` |
+| 유형 | 사용 기준 | 브랜치 예시 | 커밋·PR 제목 예시 |
+|---|---|---|---|
+| `feature` | 사용자 기능 추가 | `feature/admin-invitation-code` | `[feature] 초대 코드 발급 기능 추가` |
+| `fix` | 잘못된 동작 수정 | `fix/expired-invitation-validation` | `[fix] 만료 코드 검증 오류 수정` |
+| `refactor` | 동작 변경 없는 구조 개선 | `refactor/invitation-validation` | `[refactor] 초대 코드 검증 책임 분리` |
+| `chore` | 설정, 빌드, 운영 변경 | `chore/update-pr-template` | `[chore] PR 템플릿 개선` |
+| `docs` | 문서만 변경 | `docs/hospital-acceptance-policy` | `[docs] 병원 수락 정책 보완` |
 
 오류 응답과 로그 계약은 [백엔드 에이전트 컨텍스트](agents/backend.md)를 따릅니다.

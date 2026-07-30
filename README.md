@@ -44,6 +44,17 @@ docker compose down -v    # DB 데이터까지 삭제
 **작업 브랜치는 항상 최신 `main`에서 만듭니다. 브랜치 하나는 PR 하나만
 완료합니다.**
 
+| 브랜치 | 사용 기준 | 예시 |
+|---|---|---|
+| `main` | CI를 통과하고 dev 서버에 배포되는 통합 브랜치 | 직접 작업하지 않음 |
+| `feature/*` | 사용자 기능 추가 | `feature/admin-invitation-code` |
+| `fix/*` | 잘못된 동작 수정 | `fix/expired-invitation-validation` |
+| `refactor/*` | 동작을 바꾸지 않는 구조 개선 | `refactor/invitation-validation` |
+| `chore/*` | 설정, 빌드, CI/CD와 운영 작업 | `chore/update-pr-template` |
+| `docs/*` | 코드 변경 없는 문서 작업 | `docs/hospital-acceptance-policy` |
+
+브랜치 유형은 커밋 메시지와 PR 제목의 유형과 일치시킵니다.
+
 작업 시작:
 
 ```bash
@@ -87,7 +98,8 @@ git switch -c feature/next-feature
 ## 배포 확인
 
 기능 브랜치와 PR은 EC2에 배포되지 않습니다. `main` 병합만 ECR 이미지 생성과
-EC2 자동 배포를 시작합니다. readiness 실패 시 이전 이미지로 복구합니다.
+EC2 자동 배포를 시작합니다. 배포 스크립트는 readiness 실패 시 이전 이미지로
+복구하도록 구성되어 있습니다.
 
 - [Dev 서버 readiness](http://13.124.194.249/actuator/health/readiness)
 - [Dev 서버 배포 버전](http://13.124.194.249/api/system/version)
@@ -95,18 +107,36 @@ EC2 자동 배포를 시작합니다. readiness 실패 시 이전 이미지로 �
 
 배포 버전의 `commitSha`와 GitHub `main` 최신 커밋이 같아야 합니다.
 
+현재 dev API는 고정 IP의 HTTP로만 제공됩니다. 개발·연동에는 가짜 데이터만
+사용하며, 실제 환자정보를 다루기 전 도메인과 HTTPS를 적용해야 합니다.
+
 ## 문서
 
-| 대상 | 문서 |
-|---|---|
-| 백엔드 개발자 필수 | [프로젝트 안내](docs/project/guide.md) |
-| 제품 정책 검토 | [MVP 요구사항](docs/project/mvp-requirements.md) |
-| 모든 에이전트 | [공통 컨텍스트](docs/agents/context.md) |
-| 프론트엔드 에이전트 | [프론트엔드 컨텍스트](docs/agents/frontend.md) |
-| 백엔드 에이전트 | [백엔드 컨텍스트](docs/agents/backend.md) |
-| 백엔드 개발자 필수 | [개발 컨벤션](docs/conventions.md) |
-| 기능 작업 | [기능 템플릿](docs/templates/feature/) |
-| 프론트엔드 연동 | [기능별 계약](docs/contracts/README.md) |
-| 운영 | [DevOps 가이드](docs/devops.md) |
+### 백엔드 개발자 필수
 
-AI 작업자는 루트 [AGENTS.md](AGENTS.md)를 먼저 따릅니다.
+다음 순서로 읽습니다.
+
+1. **[프로젝트 안내](docs/project/guide.md)**: 프로젝트 구조, 환경과 전체 작업 흐름
+2. **[개발 컨벤션](docs/conventions.md)**: 코드, DB, 테스트, Git 규칙
+
+### 백엔드 AI 에이전트 필수
+
+1. **[AGENTS.md](AGENTS.md)**: 에이전트 작업 순서와 금지 사항
+2. **[공통 컨텍스트](docs/agents/context.md)**: 공통 제품 정책과 상태 계약
+3. **[백엔드 컨텍스트](docs/agents/backend.md)**: 백엔드 도메인, API, 오류와 테스트 계약
+
+### 프론트엔드 AI 에이전트 필수
+
+1. **[공통 컨텍스트](docs/agents/context.md)**
+2. **[프론트엔드 컨텍스트](docs/agents/frontend.md)**
+3. 전달받은 `docs/contracts/{번호}-{기능명}.md`
+
+### 기능 작업 시
+
+- **[기능 템플릿](docs/templates/feature/)**: `spec.md`, `implementation.md`, `review.md`
+- [기능별 프론트 계약](docs/contracts/README.md): 프론트 영향이 있을 때 작성
+
+### 참고 문서
+
+- [MVP 요구사항](docs/project/mvp-requirements.md): 제품 정책을 검토하거나 결정할 때
+- [DevOps 가이드](docs/devops.md): AWS와 배포 환경을 변경하거나 점검할 때

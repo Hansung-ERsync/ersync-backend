@@ -2,6 +2,7 @@
 
 - 범위: Spring Boot dev 환경
 - 리전: `ap-northeast-2`
+- 최종 점검: 2026-07-30
 
 ## 1. 구성
 
@@ -20,7 +21,7 @@ RDS MySQL
   → Flyway로 스키마 변경
 
 후속 구성
-  → CloudWatch에 로그 전송
+  → CloudWatch에 애플리케이션 로그 전송
 ```
 
 | 서비스 | 역할 |
@@ -30,7 +31,7 @@ RDS MySQL
 | RDS MySQL | 데이터 저장 |
 | Secrets Manager | 비밀번호와 API Key 저장 |
 | Systems Manager | SSH 없는 배포와 접속 |
-| CloudWatch | 로그와 장애 확인 |
+| CloudWatch | 애플리케이션 로그와 장애 확인, 아직 미구성 |
 
 S3는 백엔드 배포에 사용하지 않는다.
 
@@ -40,6 +41,7 @@ S3는 백엔드 배포에 사용하지 않는다.
 
 - 현재 dev EC2는 고정 IP의 HTTP 80 요청을 Nginx로 받고 Spring Boot `127.0.0.1:8080`으로 프록시한다.
 - 도메인과 HTTPS는 후속 작업으로 분리한다.
+- 현재 HTTP dev 환경에는 가짜 데이터만 사용한다. 실제 환자정보를 다루기 전에 HTTPS를 적용한다.
 - SSH 포트는 열지 않는다.
 - RDS는 Public access를 비활성화한다.
 - RDS `3306`은 EC2 Security Group만 접근할 수 있다.
@@ -114,7 +116,7 @@ EC2 Role:
 
 - ECR 이미지 pull
 - `ersync/dev/backend` 조회
-- CloudWatch 로그 전송
+- CloudWatch 로그 전송, 구성 시 사용
 - Systems Manager 접속
 
 GitHub Actions는 Access Key 대신 OIDC 임시 권한을 사용한다.
@@ -126,11 +128,12 @@ GitHub Actions는 Access Key 대신 OIDC 임시 권한을 사용한다.
 로컬 개발자는 RDS에 직접 접속하지 않는다. Docker MySQL과 `local` profile을 사용한다.
 
 ```bash
-docker compose up -d
-SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+./scripts/dev-start.sh
 ```
 
 `local` profile은 `127.0.0.1:3306`의 MySQL만 바라본다.
+Docker Compose와 Gradle 명령을 따로 실행하는 방법은 로컬 자동화 문제를
+조사할 때만 사용한다.
 
 ### Pull Request
 
@@ -177,33 +180,27 @@ main 브랜치 병합
 
 ## 4. 현재 AWS 구성
 
-- Private ECR Repository `ersync-api`가 생성되어 있다.
-- GitHub OIDC Provider와 dev 배포 Role이 생성되어 있다.
-- EC2에 Docker와 Systems Manager가 구성되어 있다.
-- EC2 IAM Role은 ECR pull과 Systems Manager 연결 권한을 가진다.
-- GitHub Actions Role은 ECR push와 지정 EC2의 SSM 명령 권한을 가진다.
-- GitHub Repository Variable `EC2_INSTANCE_ID`가 등록되어 있다.
-- `main` push 자동 배포와 readiness 성공을 확인했다.
-- private RDS MySQL 8.4와 애플리케이션 전용 계정이 구성되어 있다.
-- `ersync/dev/backend` Secret이 생성되어 있다.
-- EC2 IAM Role의 해당 Secret 조회를 확인했다.
-- Elastic IP와 Nginx reverse proxy가 구성되어 있다.
-- CloudWatch 애플리케이션 로그 수집은 아직 구성 전이다.
+### 구성·확인 완료
 
-## 5. 첫 dev 환경 생성 순서
+- [x] Private ECR Repository `ersync-api`
+- [x] GitHub OIDC Provider와 dev 배포 Role
+- [x] GitHub Repository Variable `EC2_INSTANCE_ID`
+- [x] EC2 Docker, Systems Manager와 ECR pull 권한
+- [x] `main` push 자동 배포와 readiness 성공
+- [x] private RDS MySQL 8.4와 `ersync_app` 계정
+- [x] `ersync/dev/backend` Secret과 EC2 조회 권한
+- [x] JDBC `VERIFY_IDENTITY` 연결
+- [x] Elastic IP와 Nginx reverse proxy
+- [x] Git SHA 기반 이미지 태그와 배포 버전 API
+- [x] readiness 실패 시 이전 컨테이너를 복구하는 배포 로직
 
-1. GitHub Actions에서 자동 EC2 배포를 확인한다. 완료
-2. readiness 성공과 이전 컨테이너 정리를 확인한다. 완료
-3. RDS MySQL을 만들고 EC2와 연결한다. 완료
-4. `ersync_app` DB 계정을 만든다. 완료
-5. `ersync/dev/backend` Secret을 만든다. 완료
-6. EC2 IAM Role에 해당 Secret 조회 권한을 추가한다. 완료
-7. JPA와 Flyway 기반을 추가한다. 완료
-8. 변경 사항을 `main`에 반영하고 JDBC TLS 연결을 확인한다. 완료
-9. 의도적인 readiness 실패로 이전 이미지 복구를 확인한다.
-10. CloudWatch 로그 수집을 구성한다.
+### 남은 운영 검증
 
-## 6. 현재 저장소에 추가된 파일
+- [ ] 의도적인 readiness 실패로 실제 이전 이미지 복구를 훈련한다.
+- [ ] CloudWatch 애플리케이션 로그 수집을 구성한다.
+- [ ] 실제 환자정보를 다루기 전에 도메인과 HTTPS를 적용한다.
+
+## 5. 관련 저장소 파일
 
 ```text
 Dockerfile
@@ -212,28 +209,14 @@ Dockerfile
 .github/workflows/backend-ci.yml
 .github/workflows/backend-deploy-dev.yml
 scripts/deploy-ec2.sh
+scripts/dev-start.sh
 compose.yaml
 src/main/resources/application-local.yaml
 ```
 
 실제 Secret과 AWS Endpoint는 저장소에 커밋하지 않는다.
 
-## 7. 완료 기준
-
-- [x] 로컬 Gradle 검사와 Docker 빌드가 성공함
-- [x] GitHub Actions에 AWS Access Key를 사용하지 않음
-- [x] ECR 이미지 태그로 Git SHA를 사용함
-- [x] 첫 `main` push에서 ECR 이미지 업로드가 성공함
-- [x] EC2가 IAM Role로 ECR에 접근함
-- [x] `main` push에서 EC2 자동 배포가 성공함
-- [x] EC2가 IAM Role로 Secret에 접근함
-- [x] RDS의 Public access가 비활성화됨
-- [x] 새 이미지가 JDBC `VERIFY_IDENTITY`로 RDS에 연결됨
-- [ ] readiness 실패 시 배포가 실패함
-- [ ] 이전 이미지로 복구할 수 있음
-- [x] 현재 기반 로그에 환자정보, GPS 좌표, Secret이 없음
-
-## 참고 자료
+## 6. 참고 자료
 
 - [Amazon ECR 이미지 태그 불변](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-tag-mutability.html)
 - [GitHub Actions OIDC](https://docs.github.com/en/actions/concepts/security/openid-connect)

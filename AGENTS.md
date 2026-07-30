@@ -178,7 +178,7 @@ docs/features/{2자리 번호}-{기능명}/
 - 기존 API, 상태, 역할, 조직 소유권과 개인정보 계약을 유지합니다.
 - 오류는 `CustomException`과 `ErrorCode`로 명시적으로 발생시킵니다.
 - 새로운 오류는 `ErrorCode`와 `docs/agents/backend.md`의 오류 코드 표에 등록합니다.
-- Java, Spring, JPA, Flyway와 JavaDoc 규칙은 `docs/conventions.md`를 따릅니다.
+- Java, Spring, JPA, Flyway와 Javadoc 규칙은 `docs/conventions.md`를 따릅니다.
 - 실제 환자정보, 토큰, 비밀번호, 가입 코드, Secret과 정확한 GPS를 로그에 남기지 않습니다.
 - 모든 DB 변경은 새 Flyway migration으로 추가합니다. 적용된 migration은 수정하지 않습니다.
 - 변경 위험에 맞는 단위, 통합, 권한, 동시성 테스트를 추가합니다.

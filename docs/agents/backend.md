@@ -1,7 +1,7 @@
 # ERSync 백엔드 에이전트 컨텍스트
 
 - Audience: Java and Spring Boot backend agents
-- Updated: 2026-07-25
+- Updated: 2026-07-30
 
 Read this document after `docs/agents/context.md`. Before implementation, read
 the team-reviewed feature documents and then `docs/conventions.md`. Domain
@@ -28,7 +28,7 @@ JPA, validation, Flyway, MySQL, and the test database foundation are configured.
 - domain failures use registered `CustomException(ErrorCode)` values;
 - all 4xx and 5xx responses use the shared error response shape;
 - error logs use structured `key=value` fields that LogScope can analyze;
-- security is stateless and only health endpoints are public by default;
+- security is stateless and only health and deployment-version endpoints are public by default;
 - authorization requires role checks plus organization or request ownership checks;
 - JWT login is planned with a 15-minute access token and 7-day refresh token;
 - refresh tokens must be stored as hashes and rotated on refresh;

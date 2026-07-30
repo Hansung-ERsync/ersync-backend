@@ -1,81 +1,52 @@
 <!--
-PR 제목과 커밋 메시지는 `[유형] 변경 목적` 형식으로 작성합니다.
-브랜치 이름은 `{유형}/{짧은-kebab-case-목적}` 형식으로 작성합니다.
-유형은 변경 파일이 아니라 작업의 주된 목적을 기준으로 선택합니다.
-
-예시:
-- branch: feature/admin-invitation-code
-- [feature] 초대 코드 발급 기능 추가
-- [fix] 만료된 초대 코드 검증 오류 수정
-- [refactor] 초대 코드 검증 책임 분리
-- [chore] PR 템플릿 개선
-- [docs] 병원 수락 정책 문서 보완
+PR 제목: [유형] 변경 목적
+브랜치: {유형}/{짧은-kebab-case-목적}
+주된 유형 하나만 선택하고, 해당하지 않는 값은 NONE으로 작성합니다.
 -->
-
-# Pull Request
 
 ## 유형
 
-<!-- 주된 유형 하나만 체크합니다. -->
-
-- [ ] `feature` 기능 개발
-- [ ] `fix` 버그 수정
-- [ ] `refactor` 동작을 바꾸지 않는 구조 개선
-- [ ] `chore` 설정·빌드·운영 작업
-- [ ] `docs` 문서 변경
-
-## 변경
-
-- 변경 목적:
-- 도메인:
-- 기능 문서:
-- 프론트 계약:
-
 <!--
-작성 예시:
-- 도메인: system
-- 기능 문서: docs/features/01-deployment-version-check/
-- 프론트 계약: NONE
-
-기능 문서 폴더 안의 spec.md, implementation.md, review.md 경로는 반복하지 않습니다.
-기능 문서가 필요 없는 fix, chore, docs 작업은 기능 문서에 NONE을 적습니다.
-프론트 영향이 없으면 프론트 계약에 NONE을 적습니다.
+브랜치 이름도 선택한 유형을 사용합니다.
+예: feature/admin-invitation-code
 -->
 
-## Spec 이후 변경
+- [ ] `feature` 사용자 기능 추가
+- [ ] `fix` 잘못된 동작 수정
+- [ ] `refactor` 동작 변경 없는 구조 개선
+- [ ] `chore` 설정·빌드·운영 작업
+- [ ] `docs` 문서만 변경
 
-<!-- 아래 세 항목 중 하나만 체크합니다. -->
+## 요약
 
-- [ ] 정책·API·DB·권한·프론트 계약 변경 없음
-- [ ] 변경 있음
-- [ ] Spec 적용 대상 아님
+- 목적:
+- 주요 변경:
+- 도메인: `예: invitation / system`
+- 기능 문서: `docs/features/{번호}-{기능명}/` / `NONE`
+- 프론트 계약: `docs/contracts/{번호}-{기능명}.md` / `NONE`
 
-변경이 있는 경우:
+## 검수
 
-- 변경 내용:
-- [ ] `spec.md` 반영과 팀 재검토 완료
-- [ ] 프론트 계약 반영 완료 또는 프론트 영향 없음 확인
-
-## 범위
-
-- [ ] 최신 `main`에서 현재 작업 브랜치를 생성함
-- [ ] 승인된 Spec 하나 또는 명확한 변경 하나만 다룸
+- Spec 이후 정책 변경: `NONE`
 - Spec 밖 추가 작업: `NONE`
 - 의도적으로 제외한 후속 작업: `NONE`
 
-## 로컬 검증
-
-- [ ] `./gradlew clean check` 통과
-- [ ] Docker MySQL과 `local` 프로필 실행 확인
-- [ ] readiness `UP`과 주요 시나리오 확인
-- [ ] 실행 검증이 필요 없는 변경임
-
 <!--
-clean check는 항상 확인합니다.
-코드 변경은 local 실행과 주요 시나리오도 확인합니다.
-docs 등 실행 검증이 불필요한 변경만 마지막 항목을 추가로 사용합니다.
+정책 변경이 있다면 결정 내용과 spec·프론트 계약 반영 여부를 함께 적습니다.
+검수자는 이 구역에서 PR 범위가 기능 하나를 넘어섰는지 확인합니다.
 -->
 
-- 검증 결과 문서:
+## 검증
 
-<!-- 작성 예시: docs/features/01-deployment-version-check/review.md 또는 NONE -->
+- [ ] 최신 `main`에서 작업을 시작함
+- [ ] 기능 하나 또는 명확한 변경 하나만 포함함
+- [ ] `./gradlew clean check` 통과
+- [ ] Docker MySQL과 `local` 프로필의 주요 시나리오·readiness 확인
+- [ ] 실행 검증이 필요 없는 변경임
+
+- 검증 결과: `docs/features/{번호}-{기능명}/review.md` / 간단한 결과
+
+<!--
+코드 변경은 local 실행 확인을 선택합니다.
+문서처럼 실행과 무관한 변경만 '실행 검증이 필요 없는 변경'을 선택합니다.
+-->
