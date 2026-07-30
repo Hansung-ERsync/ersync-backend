@@ -1590,13 +1590,26 @@ Do not hard-code a guessed legal retention period in domain constants.
 ## 37. Development Environment Contract
 
 - local development uses Docker MySQL and the `local` Spring profile.
-- local run command: `docker compose up -d`, then `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`.
+- preferred local run command: `./scripts/dev-start.sh`.
+- the script verifies Docker, waits for the MySQL Compose healthcheck, and then
+  runs Spring Boot with the `local` profile.
+- use the underlying `docker compose up -d --wait mysql` and
+  `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun` commands separately only when
+  diagnosing the local automation.
 - local DB uses `127.0.0.1:3306`, database `ersync`, and account `ersync_local`.
 - local developers must not connect directly to RDS.
 - the `test` profile remains for fast H2-based tests.
 - MySQL compatibility is validated with Testcontainers MySQL 8.4 tests.
 - frontend local dev servers call the shared dev API through configured CORS origins.
 - do not create branch-specific AWS environments for MVP development.
+- start every task by switching to `main`, fast-forwarding from `origin/main`,
+  and creating a new `{type}/{short-kebab-case-purpose}` branch.
+- verify that the working tree is clean before switching branches; never discard
+  or stash pre-existing changes without first identifying their owner and impact.
+- never create the next task branch from a feature branch, and never reuse a
+  merged branch for another task.
+- one branch owns one pull request. Complete the feature documents, implementation,
+  tests, review, and required frontend contract in that branch.
 - run `./gradlew clean check` locally before creating a pull request.
 - when API, database, or runtime configuration changes, also verify the local profile and readiness.
 - do not create a pull request while a required local check is failing.
@@ -1608,6 +1621,10 @@ Do not hard-code a guessed legal retention period in domain constants.
   or migration-only pull requests.
 - split a large feature only at a user workflow boundary that can be reviewed,
   tested, and deployed independently.
+- after squash merge, switch to `main`, fast-forward from `origin/main`, confirm
+  synchronization, and only then create the next task branch.
+- delete the previous local branch only after confirming its pull request was
+  merged; its remote branch may be deleted according to repository policy.
 - when frontend integration changes, include one contract generated from
   `docs/templates/frontend-contract.md`.
 
