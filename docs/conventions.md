@@ -158,6 +158,9 @@ selectDestination_otherOrganization_forbidden
 ## 10. Git 협업
 
 - `main`은 배포 가능한 상태를 유지한다.
+- 모든 작업 브랜치는 최신 `main`에서 생성한다.
+- 브랜치 하나는 PR 하나만 담당하며 병합 후 재사용하지 않는다.
+- 이전 작업 브랜치에서 다음 작업 브랜치를 만들지 않는다.
 - 기능 spec의 확정 정책을 기록하고 결정 필요 사항을 모두 해소한 뒤 구현을 시작한다.
 - 하나의 PR은 하나의 기능 또는 하나의 명확한 변경을 다룬다.
 - API 계약 변경은 기능 문서와 코드에 같이 반영한다.
@@ -177,6 +180,33 @@ refactor/invitation-validation
 chore/update-pr-template
 docs/hospital-acceptance-policy
 ```
+
+작업 시작:
+
+```bash
+git status --short
+git switch main
+git pull --ff-only origin main
+git switch -c feature/admin-invitation-code
+```
+
+PR 병합 후 다음 작업:
+
+```bash
+git switch main
+git pull --ff-only origin main
+
+# GitHub에서 PR 병합을 확인한 뒤에만 실행한다.
+git branch -D feature/admin-invitation-code
+
+git switch -c feature/next-feature
+```
+
+- `git pull --ff-only`이 실패하면 강제로 이력을 바꾸지 않고 원인을 확인한다.
+- working tree에 기존 변경이 있으면 임의로 삭제하거나 stash하지 않는다.
+- PR 생성 전 기능 문서, 코드, 테스트, `review.md`와 필요한 프론트 계약을
+  같은 브랜치에서 완료한다.
+- 다음 브랜치 생성 전 로컬 `main`과 `origin/main`의 일치 여부를 확인한다.
 
 | 유형 | 사용 기준 | 커밋·PR 제목 예시 |
 |---|---|---|

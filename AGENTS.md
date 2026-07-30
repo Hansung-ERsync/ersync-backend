@@ -40,7 +40,45 @@
 검토가 끝난 `spec.md`가 기준입니다. 충돌하거나 미확정인 정책은 임의로 구현하지
 않습니다.
 
-## 2. 기능과 PR 단위
+## 2. 브랜치 생명주기
+
+모든 작업은 최신 `main`에서 새 브랜치를 만들어 시작합니다.
+
+```bash
+git status --short
+git switch main
+git pull --ff-only origin main
+git switch -c {유형}/{짧은-kebab-case-목적}
+```
+
+- 작업 시작 전 working tree가 clean인지 확인합니다.
+- 기존 변경이 있으면 임의로 삭제하거나 stash하지 않습니다. 변경 출처와 작업
+  영향을 먼저 확인합니다.
+- 이전 기능 브랜치에서 다음 기능 브랜치를 만들지 않습니다.
+- 병합된 브랜치를 새 작업에 재사용하지 않습니다.
+- 브랜치 하나는 PR 하나만 담당합니다.
+- 기능 문서, 구현, 테스트와 연동 계약은 같은 작업 브랜치에서 완료합니다.
+- 필수 로컬 검증과 `review.md` 갱신 전에는 PR을 생성하지 않습니다.
+
+PR이 `main`에 squash merge된 뒤 다음 작업 전에 다시 동기화합니다.
+
+```bash
+git switch main
+git pull --ff-only origin main
+
+# GitHub에서 PR 병합을 확인한 뒤에만 이전 로컬 브랜치를 삭제합니다.
+git branch -D {이전-작업-브랜치}
+
+git switch -c {다음-유형}/{다음-작업}
+```
+
+- 다음 브랜치 생성 전 `main`과 `origin/main`이 일치해야 합니다.
+- PR이 아직 병합되지 않았다면 해당 브랜치를 삭제하거나 다음 작업에 재사용하지
+  않습니다.
+- 여러 작업을 병렬로 진행해야 하더라도 각 브랜치는 서로가 아닌 최신 `main`에서
+  독립적으로 만듭니다.
+
+## 3. 기능과 PR 단위
 
 - 하나의 PR은 하나의 기능을 구현, 테스트, 문서화까지 완료합니다.
 - 기능은 사용자가 하나의 목적을 달성하는 검증 가능한 흐름입니다.
@@ -60,7 +98,8 @@
 기능 작업의 고정 순서:
 
 ```text
-기능 spec 작성
+최신 main 갱신·작업 브랜치 생성
+→ 기능 spec 작성
 → AI가 기존 요구사항 충돌·미확정 정책 식별
 → 팀 검토·정책 결정
 → 확정 정책 반영·결정 필요 사항 해소
@@ -73,9 +112,11 @@
 → PR 생성
 → CI·리뷰
 → main squash merge
+→ main 다시 갱신
+→ 다음 작업 브랜치 생성
 ```
 
-## 3. 기능 문서
+## 4. 기능 문서
 
 기능 시작 시 `docs/templates/feature/`의 세 파일을 복사합니다.
 
@@ -110,7 +151,7 @@ docs/features/{2자리 번호}-{기능명}/
 → 구현 재개
 ```
 
-## 4. 프론트엔드 연동 계약
+## 5. 프론트엔드 연동 계약
 
 다음 중 하나가 변경되면 `docs/templates/frontend-contract.md`로
 `docs/contracts/{번호}-{기능명}.md`를 만듭니다.
@@ -132,7 +173,7 @@ docs/features/{2자리 번호}-{기능명}/
 - API 필드·권한·오류·이벤트는 프론트엔드 계약 하나에 기록합니다.
 - OpenAPI 도입 후 정확한 스키마는 OpenAPI, 연동 절차는 계약 문서가 기준입니다.
 
-## 5. 구현 규칙
+## 6. 구현 규칙
 
 - 기존 API, 상태, 역할, 조직 소유권과 개인정보 계약을 유지합니다.
 - 오류는 `CustomException`과 `ErrorCode`로 명시적으로 발생시킵니다.
@@ -142,7 +183,7 @@ docs/features/{2자리 번호}-{기능명}/
 - 모든 DB 변경은 새 Flyway migration으로 추가합니다. 적용된 migration은 수정하지 않습니다.
 - 변경 위험에 맞는 단위, 통합, 권한, 동시성 테스트를 추가합니다.
 
-## 6. 로컬 검증과 PR
+## 7. 로컬 검증과 PR
 
 백엔드 작업자는 다음 검사를 로컬에서 통과시킨 뒤 PR을 생성합니다.
 
@@ -150,14 +191,22 @@ docs/features/{2자리 번호}-{기능명}/
 ./gradlew clean check
 ```
 
-API, DB 또는 실행 설정을 변경했다면 다음도 확인합니다.
+API, DB 또는 실행 설정을 변경했다면 로컬 실행도 확인합니다.
 
 ```bash
-docker compose up -d
-SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+./scripts/dev-start.sh
+```
+
+다른 터미널에서 readiness를 확인합니다.
+
+```bash
 curl http://127.0.0.1:8080/actuator/health/readiness
 ```
 
+- `scripts/dev-start.sh`는 Docker 확인, MySQL healthcheck 대기와 `local`
+  프로필 실행을 담당합니다.
+- 자동화 문제를 조사할 때만 스크립트 내부의 Docker Compose와 Gradle 명령을
+  개별 실행합니다.
 - 로컬 개발은 Docker MySQL을 사용하며 RDS에 직접 연결하지 않습니다.
 - 실패한 검사를 숨기거나 PR 이후 작업으로 넘기지 않습니다.
 - 실행 명령과 결과를 기능 `review.md`에 기록합니다.
@@ -170,7 +219,7 @@ curl http://127.0.0.1:8080/actuator/health/readiness
 - 브랜치 유형은 PR의 주된 유형과 일치시킵니다.
 - 유형 선택과 제목 예시는 `docs/conventions.md`의 Git 협업 규칙을 따릅니다.
 
-## 7. main 병합과 배포
+## 8. main 병합과 배포
 
 ```text
 PR merge
@@ -187,7 +236,7 @@ PR merge
 - `main` 병합만 dev 서버 배포를 시작합니다.
 - 자동 복구가 있어도 실패 원인 수정은 새 PR로 진행합니다.
 
-## 8. 완료 보고
+## 9. 완료 보고
 
 - 사용자가 요청하지 않으면 커밋하거나 푸시하지 않습니다.
 - 사용자가 직접 수정할 항목을 먼저 개조식으로 나열합니다.
