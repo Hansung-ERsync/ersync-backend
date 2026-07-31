@@ -3,3 +3,12 @@ spring:
     url: ${LOCAL_DB_URL:jdbc:mysql://127.0.0.1:3306/ersync?sslMode=DISABLED&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true}
     username: ${LOCAL_DB_USERNAME:ersync_local}
     password: ${LOCAL_DB_PASSWORD:ersync_local_password}
+
+ersync:
+  auth:
+    jwt-secret-base64: ${ERSYNC_JWT_SECRET_BASE64:bG9jYWwtZGV2ZWxvcG1lbnQtand0LXNlY3JldC1rZXktMzItYnl0ZXM=}
+  bootstrap:
+    super-admin:
+      enabled: ${ERSYNC_SUPER_ADMIN_BOOTSTRAP_ENABLED:true}
+      login-id: ${ERSYNC_SUPER_ADMIN_LOGIN_ID:superadmin}
+      password: ${ERSYNC_SUPER_ADMIN_PASSWORD:local-admin-password}

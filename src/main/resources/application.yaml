@@ -23,6 +23,8 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+        type:
+          preferred_instant_jdbc_type: TIMESTAMP
 
 management:
   endpoints:
@@ -41,6 +43,16 @@ management:
             - db
 
 ersync:
+  auth:
+    access-token-ttl: PT15M
+    refresh-token-ttl: P7D
+    jwt-issuer: ersync
+    jwt-secret-base64: ${ERSYNC_JWT_SECRET_BASE64:}
+  bootstrap:
+    super-admin:
+      enabled: ${ERSYNC_SUPER_ADMIN_BOOTSTRAP_ENABLED:false}
+      login-id: ${ERSYNC_SUPER_ADMIN_LOGIN_ID:}
+      password: ${ERSYNC_SUPER_ADMIN_PASSWORD:}
   build:
     commit-sha: ${ERSYNC_GIT_SHA:local}
   cors:

@@ -28,12 +28,30 @@ public enum ErrorCode {
     AUTH_AUTHENTICATION_REQUIRED("AUTH_001", "인증이 필요합니다.", HttpStatus.UNAUTHORIZED),
     AUTH_ACCESS_TOKEN_INVALID("AUTH_002", "유효하지 않은 Access 토큰입니다.", HttpStatus.UNAUTHORIZED),
     AUTH_ROLE_REQUIRED("AUTH_003", "해당 역할만 사용할 수 있는 기능입니다.", HttpStatus.FORBIDDEN),
+    AUTH_CREDENTIALS_INVALID("AUTH_004", "로그인 정보를 확인할 수 없습니다.", HttpStatus.UNAUTHORIZED),
+    AUTH_REFRESH_TOKEN_INVALID("AUTH_005", "유효하지 않은 Refresh 토큰입니다.", HttpStatus.UNAUTHORIZED),
 
     /*
      * 사용자 오류
      */
     USER_NOT_FOUND("USER_001", "사용자를 찾을 수 없습니다.", HttpStatus.NOT_FOUND),
     USER_INACTIVE("USER_002", "비활성화된 사용자입니다.", HttpStatus.FORBIDDEN),
+    USER_LOGIN_ID_DUPLICATE("USER_003", "이미 사용 중인 로그인 ID입니다.", HttpStatus.CONFLICT),
+    USER_HOSPITAL_ACCOUNT_ALREADY_EXISTS("USER_004", "이미 병원 공용 계정이 존재합니다.", HttpStatus.CONFLICT),
+
+    /*
+     * 조직 오류
+     */
+    ORGANIZATION_NOT_FOUND("ORGANIZATION_001", "조직을 찾을 수 없습니다.", HttpStatus.NOT_FOUND),
+
+    /*
+     * 가입 코드 오류
+     */
+    INVITATION_CODE_INVALID("INVITATION_001", "가입 코드를 확인할 수 없습니다.", HttpStatus.BAD_REQUEST),
+    INVITATION_CODE_EXPIRED("INVITATION_002", "만료된 가입 코드입니다.", HttpStatus.CONFLICT),
+    INVITATION_CODE_USED("INVITATION_003", "이미 사용된 가입 코드입니다.", HttpStatus.CONFLICT),
+    INVITATION_CODE_REVOKED("INVITATION_004", "폐기된 가입 코드입니다.", HttpStatus.CONFLICT),
+    INVITATION_STATUS_CANNOT_CHANGE("INVITATION_005", "변경할 수 없는 가입 코드 상태입니다.", HttpStatus.CONFLICT),
 
     /*
      * 병원 오류
