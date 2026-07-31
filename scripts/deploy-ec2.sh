@@ -154,6 +154,9 @@ write_secret_config() {
         | required_string("dbname") as $dbname
         | required_string("username") as $username
         | required_string("password") as $password
+        | required_string("jwtSecretBase64") as $jwt_secret
+        | required_string("superAdminLoginId") as $super_admin_login_id
+        | required_string("superAdminPassword") as $super_admin_password
         | if $engine != "mysql" then error("engine must be mysql") else . end
         | if ($host | test("^[A-Za-z0-9.-]+$") | not)
           then error("invalid database host")
@@ -183,7 +186,15 @@ write_secret_config() {
             "  datasource:",
             ("    url: " + ($jdbc_url | @json)),
             ("    username: " + ($username | @json)),
-            ("    password: " + ($password | @json))
+            ("    password: " + ($password | @json)),
+            "ersync:",
+            "  auth:",
+            ("    jwt-secret-base64: " + ($jwt_secret | @json)),
+            "  bootstrap:",
+            "    super-admin:",
+            "      enabled: true",
+            ("      login-id: " + ($super_admin_login_id | @json)),
+            ("      password: " + ($super_admin_password | @json))
           ]
         | .[]
     ' <<< "${secret_json}" > "${temporary_secret_file}"; then

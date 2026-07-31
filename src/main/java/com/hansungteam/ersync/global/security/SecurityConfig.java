@@ -6,11 +6,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -29,6 +32,13 @@ public class SecurityConfig {
 
     private final RestAuthenticationEntryPoint authenticationEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
+    private final JwtAccountAuthenticationConverter jwtAccountAuthenticationConverter;
+
+    /** 사용자 비밀번호를 적응형 단방향 해시로 저장합니다. */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder(12);
+    }
 
     /**
      * 상태 확인 API와 CORS 사전 요청은 공개하고 나머지 요청에는 인증을 요구합니다.
@@ -52,6 +62,11 @@ public class SecurityConfig {
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler)
                 )
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAccountAuthenticationConverter))
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
+                )
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(
@@ -59,6 +74,12 @@ public class SecurityConfig {
                                 "/api/system/version",
                                 "/actuator/health",
                                 "/actuator/health/**"
+                        ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/signups/**",
+                                "/api/v1/auth/login",
+                                "/api/v1/auth/tokens/refresh"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

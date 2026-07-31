@@ -2,11 +2,13 @@ package com.hansungteam.ersync;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * ERSync 백엔드 애플리케이션의 실행 진입점입니다.
  */
 @SpringBootApplication
+@EnableScheduling
 public class ErsyncApplication {
 
     /**

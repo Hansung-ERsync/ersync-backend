@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
+import org.springframework.http.HttpHeaders;
 
 import java.io.IOException;
 
@@ -30,7 +31,10 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
             HttpServletResponse response,
             AuthenticationException authException
     ) throws IOException, ServletException {
-        ErrorCode errorCode = ErrorCode.AUTH_AUTHENTICATION_REQUIRED;
+        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        ErrorCode errorCode = authorization != null && authorization.startsWith("Bearer ")
+                ? ErrorCode.AUTH_ACCESS_TOKEN_INVALID
+                : ErrorCode.AUTH_AUTHENTICATION_REQUIRED;
         ApiErrorLogSupport.log(log, ApiErrorEvent.AUTH_ERROR, errorCode, request, authException);
         responseWriter.write(response, errorCode);
     }
