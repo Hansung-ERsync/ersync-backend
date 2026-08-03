@@ -43,6 +43,9 @@ management:
             - db
 
 ersync:
+  assessment:
+    active-protocol-version: ERSYNC_MVP_1.0
+    pre-ktas-standard-version: DEV_UNCONFIRMED
   auth:
     access-token-ttl: PT15M
     refresh-token-ttl: P7D
@@ -57,3 +60,5 @@ ersync:
     commit-sha: ${ERSYNC_GIT_SHA:local}
   cors:
     allowed-origins: ${ERSYNC_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}
+  privacy:
+    contact-sharing-consent-version: CONTACT_SHARING_DEV_1.0

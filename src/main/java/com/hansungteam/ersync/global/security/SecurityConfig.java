@@ -102,6 +102,7 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
+                "Idempotency-Key",
                 "X-Requested-With",
                 TraceContext.HEADER_NAME
         ));

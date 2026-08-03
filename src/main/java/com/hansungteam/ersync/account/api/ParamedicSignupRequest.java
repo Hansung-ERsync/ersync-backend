@@ -1,5 +1,6 @@
 package com.hansungteam.ersync.account.api;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -8,6 +9,9 @@ import jakarta.validation.constraints.Size;
 public record ParamedicSignupRequest(
         @NotBlank String invitationCode,
         @NotBlank @Pattern(regexp = "[a-z0-9]{4,30}") String loginId,
-        @NotBlank @Size(min = 8, max = 64) String password
+        @NotBlank @Size(min = 8, max = 64) String password,
+        @NotBlank @Size(max = 30) String contact,
+        @AssertTrue boolean contactSharingConsentAccepted,
+        @NotBlank @Size(max = 50) String contactSharingConsentVersion
 ) {
 }

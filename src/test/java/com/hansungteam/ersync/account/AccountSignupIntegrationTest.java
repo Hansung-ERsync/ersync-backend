@@ -15,6 +15,8 @@ import com.hansungteam.ersync.invitation.infrastructure.InvitationCodeRepository
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
+import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
+import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +55,12 @@ class AccountSignupIntegrationTest {
     private HospitalProfileRepository hospitalProfileRepository;
 
     @Autowired
+    private ParamedicProfileRepository paramedicProfileRepository;
+
+    @Autowired
+    private ContactSharingConsentRepository contactSharingConsentRepository;
+
+    @Autowired
     private AuditEventRepository auditEventRepository;
 
     @Autowired
@@ -87,7 +95,9 @@ class AccountSignupIntegrationTest {
                                   "address": "서울특별시 성북구 삼선교로 16길",
                                   "latitude": 37.5821000,
                                   "longitude": 127.0105000,
-                                  "contact": "02-1234-5678"
+                                  "contact": "02-1234-5678",
+                                  "contactSharingConsentAccepted": true,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isCreated())
@@ -103,8 +113,14 @@ class AccountSignupIntegrationTest {
         assertThat(account.getRole()).isEqualTo(UserRole.HOSPITAL_STAFF);
         assertThat(passwordEncoder.matches("safe-password", account.getPasswordHash())).isTrue();
         assertThat(profile.getReceivingStatus()).isEqualTo(ReceivingStatus.OFF);
+        assertThat(profile.getContact()).isEqualTo("02-1234-5678");
+        assertThat(contactSharingConsentRepository.existsByAccountPublicIdAndPolicyVersion(
+                account.getPublicId(),
+                "CONTACT_SHARING_DEV_1.0"
+        )).isTrue();
         assertThat(invitation.getStatus()).isEqualTo(InvitationStatus.USED);
         assertThat(auditEventRepository.countByAction(AuditAction.INVITATION_USED)).isEqualTo(1);
+        assertThat(auditEventRepository.countByAction(AuditAction.CONTACT_SHARING_CONSENT_RECORDED)).isEqualTo(1);
 
         mockMvc.perform(post("/api/v1/auth/signups/hospital")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -117,7 +133,9 @@ class AccountSignupIntegrationTest {
                                   "address": "서울특별시 성북구 삼선교로 16길",
                                   "latitude": 37.5821000,
                                   "longitude": 127.0105000,
-                                  "contact": "02-1234-5678"
+                                  "contact": "02-1234-5678",
+                                  "contactSharingConsentAccepted": true,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isConflict())
@@ -138,7 +156,10 @@ class AccountSignupIntegrationTest {
                                 {
                                   "invitationCode": "%s",
                                   "loginId": "medic01",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "contact": "010-1234-5678",
+                                  "contactSharingConsentAccepted": true,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isCreated())
@@ -147,8 +168,14 @@ class AccountSignupIntegrationTest {
                 .andExpect(jsonPath("$.hospitalId").doesNotExist());
 
         UserAccount account = userAccountRepository.findByLoginId("medic01").orElseThrow();
+        var profile = paramedicProfileRepository.findByAccountPublicId(account.getPublicId()).orElseThrow();
         assertThat(account.getOrganization().getPublicId()).isEqualTo(emsUnit.getPublicId());
         assertThat(account.getRole()).isEqualTo(UserRole.PARAMEDIC);
+        assertThat(profile.getContact()).isEqualTo("010-1234-5678");
+        assertThat(contactSharingConsentRepository.existsByAccountPublicIdAndPolicyVersion(
+                account.getPublicId(),
+                "CONTACT_SHARING_DEV_1.0"
+        )).isTrue();
     }
 
     @Test
@@ -165,12 +192,45 @@ class AccountSignupIntegrationTest {
                                 {
                                   "invitationCode": "%s",
                                   "loginId": "Medic01",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "contact": "010-1234-5678",
+                                  "contactSharingConsentAccepted": true,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
 
+        assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
+                .isEqualTo(InvitationStatus.AVAILABLE);
+    }
+
+    @Test
+    void contactSharingConsentIsRequiredBeforeInvitationIsConsumed() throws Exception {
+        Organization emsUnit = organizationRepository.save(Organization.create(
+                "도봉소방서 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        String code = issue(emsUnit, UserRole.PARAMEDIC);
+
+        mockMvc.perform(post("/api/v1/auth/signups/paramedic")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "invitationCode": "%s",
+                                  "loginId": "medic02",
+                                  "password": "safe-password",
+                                  "contact": "010-9999-8888",
+                                  "contactSharingConsentAccepted": false,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
+                                }
+                                """.formatted(code)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        assertThat(userAccountRepository.existsByLoginId("medic02")).isFalse();
+        assertThat(paramedicProfileRepository.count()).isZero();
+        assertThat(contactSharingConsentRepository.count()).isZero();
         assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
                 .isEqualTo(InvitationStatus.AVAILABLE);
     }
