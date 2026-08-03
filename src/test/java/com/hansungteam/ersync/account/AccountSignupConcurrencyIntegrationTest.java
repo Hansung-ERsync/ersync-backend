@@ -120,7 +120,10 @@ class AccountSignupConcurrencyIntegrationTest {
             accountSignupService.signupParamedic(new ParamedicSignupRequest(
                     code,
                     loginId,
-                    "safe-password"
+                    "safe-password",
+                    "010-1234-5678",
+                    true,
+                    "CONTACT_SHARING_DEV_1.0"
             ));
             return AttemptResult.succeeded();
         } catch (CustomException ex) {
@@ -138,7 +141,9 @@ class AccountSignupConcurrencyIntegrationTest {
                     "서울특별시 성북구",
                     new BigDecimal("37.5821000"),
                     new BigDecimal("127.0105000"),
-                    "02-1234-5678"
+                    "02-1234-5678",
+                    true,
+                    "CONTACT_SHARING_DEV_1.0"
             ));
             return AttemptResult.succeeded();
         } catch (CustomException ex) {

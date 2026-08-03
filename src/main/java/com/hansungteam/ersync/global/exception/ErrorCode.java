@@ -38,6 +38,7 @@ public enum ErrorCode {
     USER_INACTIVE("USER_002", "비활성화된 사용자입니다.", HttpStatus.FORBIDDEN),
     USER_LOGIN_ID_DUPLICATE("USER_003", "이미 사용 중인 로그인 ID입니다.", HttpStatus.CONFLICT),
     USER_HOSPITAL_ACCOUNT_ALREADY_EXISTS("USER_004", "이미 병원 공용 계정이 존재합니다.", HttpStatus.CONFLICT),
+    USER_CONTACT_OR_CONSENT_REQUIRED("USER_005", "회신 연락처와 연락처 제공 동의가 필요합니다.", HttpStatus.CONFLICT),
 
     /*
      * 조직 오류

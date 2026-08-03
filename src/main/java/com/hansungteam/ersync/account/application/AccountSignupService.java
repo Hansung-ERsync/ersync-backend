@@ -19,6 +19,12 @@ import com.hansungteam.ersync.invitation.infrastructure.InvitationCodeRepository
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
+import com.hansungteam.ersync.paramedic.domain.ParamedicProfile;
+import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
+import com.hansungteam.ersync.privacy.application.ContactPolicy;
+import com.hansungteam.ersync.privacy.application.ContactSharingConsentPolicy;
+import com.hansungteam.ersync.privacy.domain.ContactSharingConsent;
+import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,6 +43,9 @@ public class AccountSignupService {
     private final OrganizationRepository organizationRepository;
     private final UserAccountRepository userAccountRepository;
     private final HospitalProfileRepository hospitalProfileRepository;
+    private final ParamedicProfileRepository paramedicProfileRepository;
+    private final ContactSharingConsentRepository contactSharingConsentRepository;
+    private final ContactSharingConsentPolicy contactSharingConsentPolicy;
     private final SecretDigester secretDigester;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
@@ -45,6 +54,11 @@ public class AccountSignupService {
     /** 병원 공용 계정과 수신 OFF 상태의 응급실 프로필을 함께 생성합니다. */
     @Transactional
     public SignupResponse signupHospital(HospitalSignupRequest request) {
+        String contact = ContactPolicy.normalizeAndValidate(request.contact());
+        String consentPolicyVersion = contactSharingConsentPolicy.requireAccepted(
+                request.contactSharingConsentAccepted(),
+                request.contactSharingConsentVersion()
+        );
         InvitationCode invitation = requireUsableInvitation(
                 request.invitationCode(),
                 UserRole.HOSPITAL_STAFF,
@@ -72,12 +86,13 @@ public class AccountSignupService {
                     request.address().trim(),
                     request.latitude(),
                     request.longitude(),
-                    request.contact().trim()
+                    contact
             ));
         } catch (DataIntegrityViolationException ex) {
             throw new CustomException(ErrorCode.USER_HOSPITAL_ACCOUNT_ALREADY_EXISTS);
         }
 
+        recordContactConsent(account, consentPolicyVersion);
         consume(invitation, account);
         return SignupResponse.hospital(account, profile);
     }
@@ -85,6 +100,11 @@ public class AccountSignupService {
     /** 구급대 조직에 소속된 개인 구급대원 계정을 생성합니다. */
     @Transactional
     public SignupResponse signupParamedic(ParamedicSignupRequest request) {
+        String contact = ContactPolicy.normalizeAndValidate(request.contact());
+        String consentPolicyVersion = contactSharingConsentPolicy.requireAccepted(
+                request.contactSharingConsentAccepted(),
+                request.contactSharingConsentVersion()
+        );
         InvitationCode invitation = requireUsableInvitation(
                 request.invitationCode(),
                 UserRole.PARAMEDIC,
@@ -97,7 +117,13 @@ public class AccountSignupService {
                 request.password(),
                 UserRole.PARAMEDIC
         );
+        paramedicProfileRepository.save(ParamedicProfile.create(
+                account,
+                invitation.getOrganization(),
+                contact
+        ));
 
+        recordContactConsent(account, consentPolicyVersion);
         consume(invitation, account);
         return SignupResponse.paramedic(account);
     }
@@ -165,6 +191,21 @@ public class AccountSignupService {
                 "INVITATION_CODE",
                 invitation.getPublicId(),
                 now
+        );
+    }
+
+    private void recordContactConsent(UserAccount account, String policyVersion) {
+        Instant consentedAt = clock.instant();
+        ContactSharingConsent consent = contactSharingConsentRepository.save(
+                ContactSharingConsent.record(account, policyVersion, consentedAt)
+        );
+        auditService.record(
+                AuditAction.CONTACT_SHARING_CONSENT_RECORDED,
+                account,
+                account.getOrganization(),
+                "CONTACT_SHARING_CONSENT",
+                consent.getPublicId(),
+                consentedAt
         );
     }
 }
