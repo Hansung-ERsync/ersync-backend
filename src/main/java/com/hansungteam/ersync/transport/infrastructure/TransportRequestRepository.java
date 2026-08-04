@@ -6,10 +6,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import jakarta.persistence.LockModeType;
 
 import java.util.Optional;
+import java.util.Collection;
 
 /** 이송 요청 영속성 접근점입니다. */
 public interface TransportRequestRepository extends JpaRepository<TransportRequest, Long> {
@@ -38,4 +41,26 @@ public interface TransportRequestRepository extends JpaRepository<TransportReque
     @EntityGraph(attributePaths = {"ownerAccount", "organization", "currentDestinationOffer"})
     @Query("select request from TransportRequest request where request.id = :id")
     Optional<TransportRequest> findLockedById(@Param("id") Long id);
+
+    @EntityGraph(attributePaths = {"currentDestinationOffer"})
+    @Query(
+            value = "select request from TransportRequest request "
+                    + "where request.ownerAccount.publicId = :ownerAccountId "
+                    + "and request.status in :statuses "
+                    + "order by case "
+                    + "when request.status = com.hansungteam.ersync.transport.domain.TransportRequestStatus.COMPLETED "
+                    + "then coalesce(request.completedAt, request.updatedAt) "
+                    + "when request.status = com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED "
+                    + "then coalesce(request.cancelledAt, request.updatedAt) "
+                    + "when request.status = com.hansungteam.ersync.transport.domain.TransportRequestStatus.HANDOFF_REQUESTED "
+                    + "then coalesce(request.handoffRequestedAt, request.updatedAt) "
+                    + "else request.updatedAt end desc, request.id desc",
+            countQuery = "select count(request) from TransportRequest request "
+                    + "where request.ownerAccount.publicId = :ownerAccountId and request.status in :statuses"
+    )
+    Page<TransportRequest> findPageByOwnerAndStatuses(
+            @Param("ownerAccountId") String ownerAccountId,
+            @Param("statuses") Collection<com.hansungteam.ersync.transport.domain.TransportRequestStatus> statuses,
+            Pageable pageable
+    );
 }

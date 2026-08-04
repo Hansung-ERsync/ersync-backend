@@ -5,5 +5,6 @@ public enum HospitalDispatchAttemptStatus {
     SEARCHING,
     STOPPED_ON_ACCEPTANCE,
     STOPPED_ON_DESTINATION,
+    STOPPED_ON_CANCELLATION,
     EXHAUSTED
 }

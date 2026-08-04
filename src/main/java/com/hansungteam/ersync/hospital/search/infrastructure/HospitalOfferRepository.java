@@ -44,6 +44,12 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
 
     List<HospitalOffer> findByTransportRequestIdAndStatus(Long transportRequestId, HospitalOfferStatus status);
 
+    @Query("select offer.id from HospitalOffer offer "
+            + "where offer.transportRequest.id = :transportRequestId order by offer.id asc")
+    List<Long> findIdsByTransportRequestIdOrderById(
+            @Param("transportRequestId") Long transportRequestId
+    );
+
     long countByTransportRequestIdAndStatus(Long transportRequestId, HospitalOfferStatus status);
 
     @Query("select distinct offer.hospitalProfile.id from HospitalOffer offer "
@@ -75,7 +81,11 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
 
     @EntityGraph(attributePaths = {"transportRequest", "dispatchAttempt", "hospitalProfile"})
     @Query("select offer from HospitalOffer offer "
-            + "where offer.hospitalProfile.id = :hospitalProfileId and ("
+            + "where offer.hospitalProfile.id = :hospitalProfileId "
+            + "and offer.closedAt is null "
+            + "and offer.transportRequest.status not in ("
+            + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.COMPLETED, "
+            + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED) and ("
             + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING and "
             + "offer.transportRequest.currentDestinationOffer is null) or "
             + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and ("
@@ -89,7 +99,10 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
     @EntityGraph(attributePaths = {"transportRequest", "dispatchAttempt", "hospitalProfile"})
     @Query("select offer from HospitalOffer offer "
             + "where offer.hospitalProfile.id = :hospitalProfileId and ("
-            + "offer.status in ("
+            + "offer.transportRequest.status in ("
+            + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.COMPLETED, "
+            + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED) or "
+            + "offer.closedAt is not null or offer.status in ("
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.REJECTED, "
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.NO_RESPONSE, "
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) or "
@@ -114,6 +127,7 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
 
     @Query("select offer.id from HospitalOffer offer "
             + "where offer.routeEstimateStatus = com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus.CALCULATING "
+            + "and offer.closedAt is null "
             + "and offer.etaNextAttemptAt is not null "
             + "and offer.etaNextAttemptAt <= :now order by offer.etaNextAttemptAt asc")
     List<Long> findRouteEstimateDueIds(@Param("now") java.time.Instant now, Pageable pageable);

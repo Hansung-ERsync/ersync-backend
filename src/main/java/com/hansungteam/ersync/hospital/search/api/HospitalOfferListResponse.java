@@ -4,6 +4,7 @@ import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
+import com.hansungteam.ersync.transport.domain.TransportCancellationReason;
 
 import java.time.Instant;
 import java.util.List;
@@ -44,7 +45,12 @@ public record HospitalOfferListResponse(
             Instant respondedAt,
             HospitalAcceptanceWithdrawalReason withdrawalReason,
             String withdrawalDetail,
-            Instant withdrawnAt
+            Instant withdrawnAt,
+            boolean canConfirmHandoff,
+            Instant handoffRequestedAt,
+            Instant completedAt,
+            Instant cancelledAt,
+            TransportCancellationReason cancellationReason
     ) {
     }
 }

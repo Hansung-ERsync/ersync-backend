@@ -6,6 +6,7 @@ import com.hansungteam.ersync.transport.api.ClinicalTimelineResponse;
 import com.hansungteam.ersync.transport.api.TransportLocationResponse;
 import com.hansungteam.ersync.transport.application.ClinicalTimelineQueryService;
 import com.hansungteam.ersync.transport.application.TransportLocationService;
+import com.hansungteam.ersync.transport.application.TransportLifecycleService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,6 +29,7 @@ public class HospitalOfferController {
     private final HospitalOfferService hospitalOfferService;
     private final ClinicalTimelineQueryService clinicalTimelineQueryService;
     private final TransportLocationService transportLocationService;
+    private final TransportLifecycleService transportLifecycleService;
     private final CurrentAccountProvider currentAccountProvider;
 
     @GetMapping
@@ -93,6 +95,16 @@ public class HospitalOfferController {
                 offerId,
                 idempotencyKey,
                 request
+        );
+    }
+
+    @PostMapping("/{offerId}/confirm-handoff")
+    public HospitalHandoffConfirmationResponse confirmHandoff(
+            @PathVariable String offerId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey
+    ) {
+        return transportLifecycleService.confirmHandoff(
+                currentAccountProvider.require(), offerId, idempotencyKey
         );
     }
 }
