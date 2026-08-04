@@ -2,6 +2,10 @@ package com.hansungteam.ersync.hospital.search.api;
 
 import com.hansungteam.ersync.global.security.CurrentAccountProvider;
 import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
+import com.hansungteam.ersync.transport.api.ClinicalTimelineResponse;
+import com.hansungteam.ersync.transport.api.TransportLocationResponse;
+import com.hansungteam.ersync.transport.application.ClinicalTimelineQueryService;
+import com.hansungteam.ersync.transport.application.TransportLocationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,6 +26,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class HospitalOfferController {
 
     private final HospitalOfferService hospitalOfferService;
+    private final ClinicalTimelineQueryService clinicalTimelineQueryService;
+    private final TransportLocationService transportLocationService;
     private final CurrentAccountProvider currentAccountProvider;
 
     @GetMapping
@@ -36,6 +42,22 @@ public class HospitalOfferController {
     @GetMapping("/{offerId}")
     public HospitalOfferDetailResponse detail(@PathVariable String offerId) {
         return hospitalOfferService.detail(currentAccountProvider.require(), offerId);
+    }
+
+    @GetMapping("/{offerId}/clinical-timeline")
+    public ClinicalTimelineResponse clinicalTimeline(
+            @PathVariable String offerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size
+    ) {
+        return clinicalTimelineQueryService.hospitalTimeline(
+                currentAccountProvider.require(), offerId, page, size
+        );
+    }
+
+    @GetMapping("/{offerId}/location")
+    public TransportLocationResponse location(@PathVariable String offerId) {
+        return transportLocationService.hospitalLocation(currentAccountProvider.require(), offerId);
     }
 
     @PostMapping("/{offerId}/accept")

@@ -281,6 +281,7 @@ public class HospitalOfferService {
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
         HospitalOffer locked = offerRepository.findLockedById(scope.getOfferId())
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
+        entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
         if (!locked.getHospitalProfile().getOrganization().getPublicId().equals(principal.organizationId())) {
             throw new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND);
         }
@@ -486,6 +487,10 @@ public class HospitalOfferService {
                 offer.getRouteEstimateStatus(),
                 offer.getRouteDistanceMeters(),
                 offer.getEtaSeconds(),
+                offer.getLastSuccessRouteDistanceMeters(),
+                offer.getLastSuccessEtaSeconds(),
+                offer.getLastSuccessEtaCalculatedAt(),
+                snapshot.getLastClinicalUpdateAt(),
                 offer.getOfferedAt(),
                 offer.getRespondedAt(),
                 offer.getWithdrawalReason(),
@@ -503,6 +508,10 @@ public class HospitalOfferService {
                 offer.getStatus(),
                 false,
                 canWithdraw(offer),
+                null,
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -608,7 +617,10 @@ public class HospitalOfferService {
                         offer.getRouteEstimateStatus(),
                         offer.getRouteDistanceMeters(),
                         offer.getEtaSeconds(),
-                        offer.getEtaCalculatedAt()
+                        offer.getEtaCalculatedAt(),
+                        offer.getLastSuccessRouteDistanceMeters(),
+                        offer.getLastSuccessEtaSeconds(),
+                        offer.getLastSuccessEtaCalculatedAt()
                 ),
                 new HospitalOfferDetailResponse.Timing(
                         offer.getTransportRequest().getServerReceivedAt(),
@@ -627,6 +639,10 @@ public class HospitalOfferService {
 
     private boolean isHiddenResponseHistory(HospitalOffer offer) {
         if (offer.getStatus() == HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) {
+            return true;
+        }
+        if (offer.getStatus() == HospitalOfferStatus.PENDING
+                && offer.getTransportRequest().getCurrentDestinationOffer() != null) {
             return true;
         }
         return offer.getStatus() == HospitalOfferStatus.ACCEPTED

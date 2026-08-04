@@ -25,11 +25,14 @@ import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepositor
 import com.hansungteam.ersync.privacy.domain.ContactSharingConsent;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import com.hansungteam.ersync.transport.ValidTransportRequestFixtures;
+import com.hansungteam.ersync.transport.api.UpdateTransportLocationRequest;
+import com.hansungteam.ersync.transport.application.TransportLocationService;
 import com.hansungteam.ersync.transport.application.TransportRequestService;
 import com.hansungteam.ersync.transport.destination.application.TransportDestinationService;
 import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
+import com.hansungteam.ersync.transport.infrastructure.TransportCurrentLocationRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -47,6 +50,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -63,6 +67,8 @@ class TransportDestinationConcurrencyIntegrationTest {
     @Autowired private TransportRequestRepository requestRepository;
     @Autowired private TransportDestinationCommandRepository commandRepository;
     @Autowired private TransportRequestService requestService;
+    @Autowired private TransportLocationService locationService;
+    @Autowired private TransportCurrentLocationRepository currentLocationRepository;
     @Autowired private HospitalSearchService searchService;
     @Autowired private HospitalOfferService offerService;
     @Autowired private TransportDestinationService destinationService;
@@ -125,6 +131,83 @@ class TransportDestinationConcurrencyIntegrationTest {
         assertThat(attemptRepository.findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)
                 .orElseThrow().getAttemptNumber()).isEqualTo(2);
         assertThat(commandRepository.countByTransportRequestId(storedRequest.getId())).isBetween(0L, 1L);
+    }
+
+    @Test
+    void locationUpdateAndDestinationWithdrawalRemainConsistentWhenTheyRace() throws Exception {
+        UserAccount paramedic = createParamedic("locationwithdrawalmedic");
+        UserAccount hospital = createHospital("locationwithdrawalhospital", "37.6021000");
+        String requestId = createAndSearch(paramedic, "location-withdrawal-request");
+        var offer = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId).stream()
+                .filter(candidate -> candidate.getHospitalNameSnapshot().equals("locationwithdrawalhospital 병원"))
+                .findFirst().orElseThrow();
+        offerService.accept(hospitalPrincipal(hospital), offer.getPublicId(), "location-withdrawal-accept");
+        destinationService.select(
+                paramedicPrincipal(paramedic), requestId, "location-withdrawal-select", offer.getPublicId()
+        );
+
+        Instant initialCapturedAt = Instant.parse("2026-08-04T10:00:00Z");
+        locationService.update(
+                paramedicPrincipal(paramedic),
+                requestId,
+                "location-before-withdrawal",
+                new UpdateTransportLocationRequest(
+                        new BigDecimal("37.5100000"),
+                        new BigDecimal("127.0100000"),
+                        initialCapturedAt
+                )
+        );
+
+        List<Outcome> outcomes = runTogether(
+                () -> locationOutcome(
+                        paramedic,
+                        requestId,
+                        "location-during-withdrawal",
+                        new UpdateTransportLocationRequest(
+                                new BigDecimal("37.5200000"),
+                                new BigDecimal("127.0200000"),
+                                initialCapturedAt.plusSeconds(10)
+                        )
+                ),
+                () -> withdrawalOutcome(hospital, offer.getPublicId())
+        );
+
+        assertThat(outcomes).allMatch(Outcome::successful);
+        var storedRequest = requestRepository
+                .findByPublicIdAndOwnerAccountPublicId(requestId, paramedic.getPublicId())
+                .orElseThrow();
+        var storedLocation = currentLocationRepository.findByTransportRequestId(storedRequest.getId())
+                .orElseThrow();
+        var activeRecoveries = attemptRepository.findLatestIdsByTransportRequestIdAndStatus(
+                storedRequest.getId(), HospitalDispatchAttemptStatus.SEARCHING, PageRequest.of(0, 10)
+        );
+
+        assertThat(storedRequest.getStatus()).isEqualTo(TransportRequestStatus.SEARCHING);
+        assertThat(storedRequest.getCurrentDestinationOffer()).isNull();
+        assertThat(offerRepository.findById(offer.getId()).orElseThrow().getStatus())
+                .isEqualTo(HospitalOfferStatus.ACCEPTANCE_WITHDRAWN);
+        assertThat(storedLocation.getLatitude()).isEqualByComparingTo("37.5200000");
+        assertThat(storedLocation.getLongitude()).isEqualByComparingTo("127.0200000");
+        assertThat(storedLocation.getCapturedAt()).isEqualTo(initialCapturedAt.plusSeconds(10));
+        assertThat(currentLocationRepository.count()).isEqualTo(1);
+        assertThat(activeRecoveries).hasSize(1);
+
+        var recovery = attemptRepository.findById(activeRecoveries.getFirst()).orElseThrow();
+        boolean usedPreviouslyCommittedLocation =
+                recovery.getSearchOriginLatitude().compareTo(new BigDecimal("37.5100000")) == 0
+                        && recovery.getSearchOriginLongitude().compareTo(new BigDecimal("127.0100000")) == 0;
+        boolean usedConcurrentLocation =
+                recovery.getSearchOriginLatitude().compareTo(new BigDecimal("37.5200000")) == 0
+                        && recovery.getSearchOriginLongitude().compareTo(new BigDecimal("127.0200000")) == 0;
+        assertThat(usedPreviouslyCommittedLocation || usedConcurrentLocation).isTrue();
+
+        assertThat(locationService.ownerLocation(paramedicPrincipal(paramedic), requestId).latitude())
+                .isEqualByComparingTo("37.5200000");
+        assertThatThrownBy(() -> locationService.hospitalLocation(
+                hospitalPrincipal(hospital), offer.getPublicId()
+        )).isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode().getCode())
+                        .isEqualTo("TRANSPORT_005"));
     }
 
     @Test
@@ -378,6 +461,20 @@ class TransportDestinationConcurrencyIntegrationTest {
                             null
                     )
             );
+            return Outcome.success();
+        } catch (CustomException exception) {
+            return Outcome.failure(exception.getErrorCode().getCode());
+        }
+    }
+
+    private Outcome locationOutcome(
+            UserAccount paramedic,
+            String requestId,
+            String key,
+            UpdateTransportLocationRequest request
+    ) {
+        try {
+            locationService.update(paramedicPrincipal(paramedic), requestId, key, request);
             return Outcome.success();
         } catch (CustomException exception) {
             return Outcome.failure(exception.getErrorCode().getCode());

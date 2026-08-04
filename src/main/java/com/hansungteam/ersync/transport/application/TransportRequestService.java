@@ -3,6 +3,7 @@ package com.hansungteam.ersync.transport.application;
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
 import com.hansungteam.ersync.assessment.protocol.application.AssessmentProtocolValidator;
+import com.hansungteam.ersync.assessment.protocol.application.ClinicalInputMapper;
 import com.hansungteam.ersync.audit.application.AuditService;
 import com.hansungteam.ersync.audit.domain.AuditAction;
 import com.hansungteam.ersync.global.exception.CustomException;
@@ -16,8 +17,6 @@ import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepositor
 import com.hansungteam.ersync.privacy.application.ContactSharingConsentPolicy;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest;
-import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.TreatmentDetailsInput;
-import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.TreatmentInput;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestResponse;
 import com.hansungteam.ersync.transport.domain.ConsciousnessAssessment;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
@@ -25,7 +24,6 @@ import com.hansungteam.ersync.transport.domain.IncidentAssessment;
 import com.hansungteam.ersync.transport.domain.PatientDemographics;
 import com.hansungteam.ersync.transport.domain.PreKtasAssessment;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
-import com.hansungteam.ersync.transport.domain.TreatmentDetails;
 import com.hansungteam.ersync.transport.domain.TreatmentEvent;
 import com.hansungteam.ersync.transport.domain.VitalSignSet;
 import com.hansungteam.ersync.transport.infrastructure.ConsciousnessAssessmentRepository;
@@ -55,6 +53,7 @@ public class TransportRequestService {
     private final ContactSharingConsentRepository contactSharingConsentRepository;
     private final ContactSharingConsentPolicy contactSharingConsentPolicy;
     private final AssessmentProtocolValidator assessmentProtocolValidator;
+    private final ClinicalRecordMapper clinicalRecordMapper;
     private final TransportRequestFingerprint requestFingerprint;
     private final TransportRequestRepository transportRequestRepository;
     private final PatientDemographicsRepository patientDemographicsRepository;
@@ -217,17 +216,8 @@ public class TransportRequestService {
             CreateTransportRequestRequest request,
             Instant receivedAt
     ) {
-        return preKtasAssessmentRepository.save(PreKtasAssessment.create(
-                transportRequest,
-                request.preKtas().classificationStatus(),
-                request.preKtas().level(),
-                request.preKtas().exceptionReason(),
-                trimToNull(request.preKtas().exceptionDetail()),
-                request.preKtas().assessedAt(),
-                request.preKtas().standardVersion().trim(),
-                request.preKtas().enteredAt(),
-                receivedAt,
-                account
+        return preKtasAssessmentRepository.save(clinicalRecordMapper.preKtas(
+                transportRequest, account, ClinicalInputMapper.from(request.preKtas()), receivedAt
         ));
     }
 
@@ -237,15 +227,8 @@ public class TransportRequestService {
             CreateTransportRequestRequest request,
             Instant receivedAt
     ) {
-        return consciousnessAssessmentRepository.save(ConsciousnessAssessment.create(
-                transportRequest,
-                request.consciousness().avpu(),
-                request.consciousness().unassessableReason(),
-                trimToNull(request.consciousness().unassessableDetail()),
-                request.consciousness().observedAt(),
-                request.consciousness().enteredAt(),
-                receivedAt,
-                account
+        return consciousnessAssessmentRepository.save(clinicalRecordMapper.consciousness(
+                transportRequest, account, ClinicalInputMapper.from(request.consciousness()), receivedAt
         ));
     }
 
@@ -255,22 +238,9 @@ public class TransportRequestService {
             CreateTransportRequestRequest request,
             Instant receivedAt
     ) {
-        VitalSignSet set = VitalSignSet.create(
-                transportRequest,
-                request.vitalSigns().measuredAt(),
-                request.vitalSigns().enteredAt(),
-                receivedAt,
-                account
-        );
-        request.vitalSigns().measurements().forEach(measurement -> set.addMeasurement(
-                measurement.type(),
-                measurement.state(),
-                measurement.primaryValue(),
-                measurement.secondaryValue(),
-                measurement.unavailableReason(),
-                trimToNull(measurement.unavailableDetail())
+        return vitalSignSetRepository.save(clinicalRecordMapper.vitalSigns(
+                transportRequest, account, ClinicalInputMapper.from(request.vitalSigns()), receivedAt
         ));
-        return vitalSignSetRepository.save(set);
     }
 
     private List<TreatmentEvent> saveTreatments(
@@ -279,49 +249,11 @@ public class TransportRequestService {
             CreateTransportRequestRequest request,
             Instant receivedAt
     ) {
-        return request.treatments().stream()
-                .map(treatment -> treatmentEventRepository.save(TreatmentEvent.create(
-                        transportRequest,
-                        treatment.type(),
-                        treatment.attemptResult(),
-                        toDetails(treatment),
-                        treatment.performedAt(),
-                        treatment.enteredAt(),
-                        receivedAt,
-                        account
+        return ClinicalInputMapper.from(request.treatments()).stream()
+                .map(treatment -> treatmentEventRepository.save(clinicalRecordMapper.treatment(
+                        transportRequest, account, treatment, receivedAt
                 )))
                 .toList();
-    }
-
-    private TreatmentDetails toDetails(TreatmentInput treatment) {
-        TreatmentDetailsInput details = treatment.details();
-        if (details == null) {
-            return null;
-        }
-        return TreatmentDetails.builder()
-                .method(trimToNull(details.method()))
-                .device(trimToNull(details.device()))
-                .flowRateLpm(details.flowRateLpm())
-                .startedAt(details.startedAt())
-                .success(details.success())
-                .currentStatus(trimToNull(details.currentStatus()))
-                .rosc(details.rosc())
-                .roscAt(details.roscAt())
-                .shockCount(details.shockCount())
-                .fluidName(trimToNull(details.fluidName()))
-                .amountMl(details.amountMl())
-                .medicationName(trimToNull(details.medicationName()))
-                .dose(trimToNull(details.dose()))
-                .route(trimToNull(details.route()))
-                .site(trimToNull(details.site()))
-                .tourniquetUsed(details.tourniquetUsed())
-                .tourniquetAppliedAt(details.tourniquetAppliedAt())
-                .leadType(trimToNull(details.leadType()))
-                .findings(trimToNull(details.findings()))
-                .transmitted(details.transmitted())
-                .birthAt(details.birthAt())
-                .detail(trimToNull(details.detail()))
-                .build();
     }
 
     private void saveSnapshot(

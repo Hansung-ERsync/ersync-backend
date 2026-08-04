@@ -140,6 +140,85 @@ public class CurrentPatientSnapshot {
         );
     }
 
+    /** 임상 시각과 서버 수신 시각이 더 최신일 때만 활력징후 포인터를 전진시킵니다. */
+    public boolean advanceVitalSigns(VitalSignSet candidate) {
+        if (!isLater(
+                candidate.getMeasuredAt(),
+                candidate.getServerReceivedAt(),
+                latestVitalSignSet.getMeasuredAt(),
+                latestVitalSignSet.getServerReceivedAt()
+        )) {
+            touch(candidate.getServerReceivedAt());
+            return false;
+        }
+        latestVitalSignSet = candidate;
+        touch(candidate.getServerReceivedAt());
+        return true;
+    }
+
+    /** 임상 시각과 서버 수신 시각이 더 최신일 때만 의식 평가 포인터를 전진시킵니다. */
+    public boolean advanceConsciousness(ConsciousnessAssessment candidate) {
+        if (!isLater(
+                candidate.getObservedAt(),
+                candidate.getServerReceivedAt(),
+                latestConsciousnessAssessment.getObservedAt(),
+                latestConsciousnessAssessment.getServerReceivedAt()
+        )) {
+            touch(candidate.getServerReceivedAt());
+            return false;
+        }
+        latestConsciousnessAssessment = candidate;
+        touch(candidate.getServerReceivedAt());
+        return true;
+    }
+
+    /** 완료·긴급 미완료를 같은 임상 시각 규칙으로 비교해 Pre-KTAS 포인터를 전진시킵니다. */
+    public boolean advancePreKtas(PreKtasAssessment candidate) {
+        Instant candidateClinicalAt = clinicalAt(candidate);
+        Instant currentClinicalAt = clinicalAt(latestPreKtasAssessment);
+        if (!isLater(
+                candidateClinicalAt,
+                candidate.getServerReceivedAt(),
+                currentClinicalAt,
+                latestPreKtasAssessment.getServerReceivedAt()
+        )) {
+            touch(candidate.getServerReceivedAt());
+            return false;
+        }
+        latestPreKtasAssessment = candidate;
+        touch(candidate.getServerReceivedAt());
+        return true;
+    }
+
+    /** 최초 NONE은 원본에 남기되 실제 처치가 생기면 현재 처치 목록에서는 제거합니다. */
+    public void appendTreatment(TreatmentEvent treatment) {
+        currentTreatments.removeIf(current -> current.getTreatmentType() == TreatmentType.NONE);
+        currentTreatments.add(treatment);
+        touch(treatment.getServerReceivedAt());
+    }
+
+    private Instant clinicalAt(PreKtasAssessment assessment) {
+        return assessment.getAssessedAt() == null ? assessment.getEnteredAt() : assessment.getAssessedAt();
+    }
+
+    private boolean isLater(
+            Instant candidateClinicalAt,
+            Instant candidateReceivedAt,
+            Instant currentClinicalAt,
+            Instant currentReceivedAt
+    ) {
+        int clinicalComparison = candidateClinicalAt.compareTo(currentClinicalAt);
+        return clinicalComparison > 0
+                || (clinicalComparison == 0 && !candidateReceivedAt.isBefore(currentReceivedAt));
+    }
+
+    private void touch(Instant receivedAt) {
+        if (receivedAt.isAfter(lastClinicalUpdateAt)) {
+            lastClinicalUpdateAt = receivedAt;
+        }
+        updatedAt = receivedAt;
+    }
+
     @PreUpdate
     private void onUpdate() {
         updatedAt = Instant.now();

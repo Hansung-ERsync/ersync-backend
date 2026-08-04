@@ -39,17 +39,18 @@ public class RouteEstimateCoordinator {
                     work.destinationLatitude(),
                     work.destinationLongitude()
             );
-            persistence.complete(work.offerId(), estimate, clock.instant());
+            persistence.complete(work.offerId(), work.generation(), estimate, clock.instant());
         } catch (TemporaryRouteEstimateException exception) {
             Instant failedAt = clock.instant();
             persistence.retryOrFinish(
                     work.offerId(),
+                    work.generation(),
                     maximumAttempts,
                     failedAt.plus(retryDelay),
                     failedAt
             );
         } catch (PermanentRouteEstimateException exception) {
-            persistence.finishUnavailable(work.offerId(), clock.instant());
+            persistence.finishUnavailable(work.offerId(), work.generation(), clock.instant());
         }
     }
 }
