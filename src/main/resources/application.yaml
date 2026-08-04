@@ -85,6 +85,8 @@ ersync:
       claim-lease: PT15S
   privacy:
     contact-sharing-consent-version: CONTACT_SHARING_DEV_1.0
+    collection-use-consent-version: COLLECTION_USE_DEV_1.0
+    hospital-provision-consent-version: HOSPITAL_PROVISION_DEV_1.0
   realtime:
     scheduler-enabled: true
     outbox-fixed-delay: PT1S

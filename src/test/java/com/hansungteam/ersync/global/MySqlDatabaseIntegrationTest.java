@@ -121,8 +121,10 @@ class MySqlDatabaseIntegrationTest {
                     OR (table_name = 'hospital_offers' AND column_name = 'last_success_route_distance_m')
                     OR (table_name = 'hospital_offers' AND column_name = 'last_success_eta_seconds')
                     OR (table_name = 'hospital_offers' AND column_name = 'last_success_eta_calculated_at')
+                    OR (table_name = 'paramedic_profiles' AND column_name = 'display_name')
+                    OR (table_name = 'contact_sharing_consents' AND column_name = 'consent_type')
                   )
-                """, Integer.class)).isEqualTo(7);
+                """, Integer.class)).isEqualTo(9);
     }
 
     @Test
