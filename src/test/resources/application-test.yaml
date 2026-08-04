@@ -8,5 +8,12 @@ spring:
 ersync:
   auth:
     jwt-secret-base64: dGVzdC1qd3Qtc2VjcmV0LWtleS0zMi1ieXRlcy1mb3ItdGVzdHM=
+  hospital-search:
+    scheduler-enabled: false
+  maps:
+    naver:
+      eta-scheduler-enabled: false
+  realtime:
+    scheduler-enabled: false
   invitation:
     expiry-scheduler-enabled: false

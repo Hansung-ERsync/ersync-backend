@@ -157,6 +157,8 @@ write_secret_config() {
         | required_string("jwtSecretBase64") as $jwt_secret
         | required_string("superAdminLoginId") as $super_admin_login_id
         | required_string("superAdminPassword") as $super_admin_password
+        | required_string("naverMapsClientId") as $naver_maps_client_id
+        | required_string("naverMapsClientSecret") as $naver_maps_client_secret
         | if $engine != "mysql" then error("engine must be mysql") else . end
         | if ($host | test("^[A-Za-z0-9.-]+$") | not)
           then error("invalid database host")
@@ -194,7 +196,12 @@ write_secret_config() {
             "    super-admin:",
             "      enabled: true",
             ("      login-id: " + ($super_admin_login_id | @json)),
-            ("      password: " + ($super_admin_password | @json))
+            ("      password: " + ($super_admin_password | @json)),
+            "  maps:",
+            "    naver:",
+            "      enabled: true",
+            ("      client-id: " + ($naver_maps_client_id | @json)),
+            ("      client-secret: " + ($naver_maps_client_secret | @json))
           ]
         | .[]
     ' <<< "${secret_json}" > "${temporary_secret_file}"; then

@@ -41,6 +41,9 @@ public class HospitalReceivingService {
         if (!account.isActive()) {
             throw new CustomException(ErrorCode.USER_INACTIVE);
         }
+        if (account.getOrganization() == null || !account.getOrganization().isActive()) {
+            throw new CustomException(ErrorCode.COMMON_ACCESS_DENIED);
+        }
         HospitalProfile profile = hospitalProfileRepository.findByAccountPublicId(account.getPublicId())
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_NOT_FOUND));
         if (!profile.getOrganization().getPublicId().equals(principal.organizationId())) {

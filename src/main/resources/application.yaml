@@ -60,5 +60,32 @@ ersync:
     commit-sha: ${ERSYNC_GIT_SHA:local}
   cors:
     allowed-origins: ${ERSYNC_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}
+  hospital-search:
+    scheduler-enabled: true
+    scheduler-fixed-delay: PT1S
+    initial-radius-km: 10
+    minimum-candidate-count: 3
+    radius-increment-km: 10
+    maximum-radius-km: 100
+    response-window: PT60S
+  maps:
+    naver:
+      enabled: ${ERSYNC_NAVER_MAPS_ENABLED:false}
+      eta-scheduler-enabled: true
+      eta-scheduler-fixed-delay: PT1S
+      base-url: https://maps.apigw.ntruss.com
+      client-id: ${ERSYNC_NAVER_MAPS_CLIENT_ID:}
+      client-secret: ${ERSYNC_NAVER_MAPS_CLIENT_SECRET:}
+      connect-timeout: PT2S
+      read-timeout: PT3S
+      maximum-attempts: 3
+      retry-delay: PT5S
+      claim-lease: PT15S
   privacy:
     contact-sharing-consent-version: CONTACT_SHARING_DEV_1.0
+  realtime:
+    scheduler-enabled: true
+    outbox-fixed-delay: PT1S
+    outbox-claim-lease: PT10S
+    outbox-retry-delay: PT3S
+    heartbeat-delay: PT15S
