@@ -3,6 +3,11 @@ package com.hansungteam.ersync.transport.infrastructure;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 import java.util.Optional;
 
@@ -16,4 +21,9 @@ public interface TransportRequestRepository extends JpaRepository<TransportReque
     );
 
     Optional<TransportRequest> findByPublicId(String publicId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"ownerAccount", "organization"})
+    @Query("select request from TransportRequest request where request.id = :id")
+    Optional<TransportRequest> findLockedById(@Param("id") Long id);
 }

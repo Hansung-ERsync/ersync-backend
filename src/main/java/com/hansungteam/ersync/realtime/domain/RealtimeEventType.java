@@ -1,0 +1,12 @@
+package com.hansungteam.ersync.realtime.domain;
+
+/** 자동 병원 탐색·응답 기능에서 전달하는 최소 실시간 이벤트 종류입니다. */
+public enum RealtimeEventType {
+    TRANSPORT_REQUEST_RECEIVED,
+    HOSPITAL_OFFER_ACCEPTED,
+    HOSPITAL_OFFER_REJECTED,
+    HOSPITAL_OFFER_NO_RESPONSE,
+    HOSPITAL_SEARCH_EXHAUSTED,
+    HOSPITAL_SEARCH_RETRY_STARTED,
+    ETA_UPDATED
+}

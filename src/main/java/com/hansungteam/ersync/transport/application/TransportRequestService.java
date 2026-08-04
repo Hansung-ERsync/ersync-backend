@@ -9,6 +9,7 @@ import com.hansungteam.ersync.global.exception.CustomException;
 import com.hansungteam.ersync.global.exception.ErrorCode;
 import com.hansungteam.ersync.global.security.AuthenticatedAccount;
 import com.hansungteam.ersync.global.security.UserRole;
+import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.paramedic.domain.ParamedicProfile;
 import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
@@ -63,6 +64,7 @@ public class TransportRequestService {
     private final VitalSignSetRepository vitalSignSetRepository;
     private final TreatmentEventRepository treatmentEventRepository;
     private final CurrentPatientSnapshotRepository currentPatientSnapshotRepository;
+    private final HospitalSearchService hospitalSearchService;
     private final AuditService auditService;
     private final Clock clock;
 
@@ -123,6 +125,7 @@ public class TransportRequestService {
                 treatments,
                 receivedAt
         );
+        hospitalSearchService.initialize(transportRequest, receivedAt);
 
         auditService.record(
                 AuditAction.TRANSPORT_REQUEST_CREATED,
@@ -148,6 +151,7 @@ public class TransportRequestService {
             throw new CustomException(ErrorCode.AUTH_ROLE_REQUIRED);
         }
         if (account.getOrganization() == null
+                || !account.getOrganization().isActive()
                 || account.getOrganization().getType() != OrganizationType.EMS_UNIT
                 || authenticated.organizationId() == null
                 || !authenticated.organizationId().equals(account.getOrganization().getPublicId())) {

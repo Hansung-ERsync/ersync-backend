@@ -38,6 +38,10 @@ public class Organization {
     @Column(nullable = false, length = 20)
     private OrganizationType type;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private OrganizationStatus status;
+
     @Column(name = "created_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant createdAt;
 
@@ -48,11 +52,21 @@ public class Organization {
         this.publicId = UUID.randomUUID().toString();
         this.name = name;
         this.type = type;
+        this.status = OrganizationStatus.ACTIVE;
     }
 
     /** 새 조직을 생성합니다. */
     public static Organization create(String name, OrganizationType type) {
         return new Organization(name, type);
+    }
+
+    /** 신규 병원 탐색 대상에서 조직을 제외합니다. */
+    public void deactivate() {
+        status = OrganizationStatus.INACTIVE;
+    }
+
+    public boolean isActive() {
+        return status == OrganizationStatus.ACTIVE;
     }
 
     @PrePersist
