@@ -185,6 +185,12 @@ public class HospitalDispatchAttempt {
         this.endedAt = endedAt;
     }
 
+    public void stopOnCancellation(Instant endedAt) {
+        status = HospitalDispatchAttemptStatus.STOPPED_ON_CANCELLATION;
+        nextExpansionAt = null;
+        this.endedAt = endedAt;
+    }
+
     public void exhaust(Instant endedAt) {
         status = HospitalDispatchAttemptStatus.EXHAUSTED;
         nextExpansionAt = null;

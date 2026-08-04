@@ -118,8 +118,13 @@ public class RouteEstimatePersistence {
     }
 
     private boolean isObsoleteDynamicCalculation(HospitalOffer offer) {
-        return offer.getRouteEstimateGeneration() > 0
-                && !offer.getTransportRequest().hasDestination(offer);
+        return offer.getClosedAt() != null
+                || offer.getTransportRequest().getStatus()
+                        == com.hansungteam.ersync.transport.domain.TransportRequestStatus.COMPLETED
+                || offer.getTransportRequest().getStatus()
+                        == com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED
+                || (offer.getRouteEstimateGeneration() > 0
+                        && !offer.getTransportRequest().hasDestination(offer));
     }
 
     private HospitalOffer lockOfferInRequestOrder(Long offerId) {

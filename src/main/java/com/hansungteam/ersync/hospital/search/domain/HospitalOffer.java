@@ -306,6 +306,14 @@ public class HospitalOffer {
         this.closedAt = closedAt;
     }
 
+    /** 요청 종료 시 병원의 실제 응답 상태는 보존하고 활성 제안만 닫습니다. */
+    public void close(Instant closedAt) {
+        if (this.closedAt == null) {
+            this.closedAt = closedAt;
+            etaNextAttemptAt = null;
+        }
+    }
+
     /** 외부 호출 전에 짧은 lease를 잡아 같은 ETA 작업의 동시 실행을 줄입니다. */
     public void reserveRouteEstimate(Instant leaseUntil) {
         if (routeEstimateStatus != RouteEstimateStatus.CALCULATING) {
@@ -359,7 +367,7 @@ public class HospitalOffer {
     }
 
     private void requirePending() {
-        if (status != HospitalOfferStatus.PENDING) {
+        if (status != HospitalOfferStatus.PENDING || closedAt != null) {
             throw new IllegalStateException("Only a pending hospital offer can be decided");
         }
     }

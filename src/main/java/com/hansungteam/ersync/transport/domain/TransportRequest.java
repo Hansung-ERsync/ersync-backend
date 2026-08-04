@@ -56,6 +56,34 @@ public class TransportRequest {
     @JoinColumn(name = "current_destination_offer_id")
     private HospitalOffer currentDestinationOffer;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancellation_reason", length = 40)
+    private TransportCancellationReason cancellationReason;
+
+    @Column(name = "cancellation_detail", length = 200)
+    private String cancellationDetail;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cancelled_by_account_id")
+    private UserAccount cancelledByAccount;
+
+    @Column(name = "cancelled_at", columnDefinition = "datetime(6)")
+    private Instant cancelledAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "handoff_requested_by_account_id")
+    private UserAccount handoffRequestedByAccount;
+
+    @Column(name = "handoff_requested_at", columnDefinition = "datetime(6)")
+    private Instant handoffRequestedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "handoff_confirmed_by_account_id")
+    private UserAccount handoffConfirmedByAccount;
+
+    @Column(name = "completed_at", columnDefinition = "datetime(6)")
+    private Instant completedAt;
+
     @Column(name = "callback_contact", nullable = false, length = 30)
     private String callbackContact;
 
@@ -214,6 +242,47 @@ public class TransportRequest {
 
     public boolean hasDestination(HospitalOffer offer) {
         return currentDestinationOffer != null && currentDestinationOffer.getId().equals(offer.getId());
+    }
+
+    /** 활성 요청을 사유와 함께 종료하고 현재 목적지를 활성 연결에서 해제합니다. */
+    public void cancel(
+            UserAccount actor,
+            TransportCancellationReason reason,
+            String detail,
+            Instant occurredAt
+    ) {
+        if (status != TransportRequestStatus.SEARCHING
+                && status != TransportRequestStatus.CANDIDATES_EXHAUSTED
+                && status != TransportRequestStatus.ACCEPTED_AVAILABLE
+                && status != TransportRequestStatus.EN_ROUTE) {
+            throw new IllegalStateException("Transport cannot be cancelled in the current status");
+        }
+        cancellationReason = reason;
+        cancellationDetail = detail;
+        cancelledByAccount = actor;
+        cancelledAt = occurredAt;
+        currentDestinationOffer = null;
+        status = TransportRequestStatus.CANCELLED;
+    }
+
+    /** 구급대원이 목적지 병원에 실제 인계 확인을 요청합니다. */
+    public void requestHandoff(UserAccount actor, Instant occurredAt) {
+        if (status != TransportRequestStatus.EN_ROUTE || currentDestinationOffer == null) {
+            throw new IllegalStateException("Handoff cannot be requested without an active destination");
+        }
+        handoffRequestedByAccount = actor;
+        handoffRequestedAt = occurredAt;
+        status = TransportRequestStatus.HANDOFF_REQUESTED;
+    }
+
+    /** 현재 목적지 병원이 인수를 확인한 뒤 이송을 최종 완료합니다. */
+    public void confirmHandoff(UserAccount actor, Instant occurredAt) {
+        if (status != TransportRequestStatus.HANDOFF_REQUESTED || currentDestinationOffer == null) {
+            throw new IllegalStateException("Handoff cannot be confirmed in the current status");
+        }
+        handoffConfirmedByAccount = actor;
+        completedAt = occurredAt;
+        status = TransportRequestStatus.COMPLETED;
     }
 
     @PrePersist

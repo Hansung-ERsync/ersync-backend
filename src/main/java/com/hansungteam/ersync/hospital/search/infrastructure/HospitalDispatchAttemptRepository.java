@@ -47,6 +47,14 @@ public interface HospitalDispatchAttemptRepository extends JpaRepository<Hospita
             Pageable pageable
     );
 
+    @Query("select attempt.id from HospitalDispatchAttempt attempt "
+            + "where attempt.transportRequest.id = :transportRequestId and attempt.status = :status "
+            + "order by attempt.id asc")
+    List<Long> findIdsByTransportRequestIdAndStatusOrderById(
+            @Param("transportRequestId") Long transportRequestId,
+            @Param("status") HospitalDispatchAttemptStatus status
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select attempt from HospitalDispatchAttempt attempt "
             + "join fetch attempt.transportRequest where attempt.id = :id")

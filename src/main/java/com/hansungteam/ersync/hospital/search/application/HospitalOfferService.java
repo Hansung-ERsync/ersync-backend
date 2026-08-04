@@ -308,7 +308,9 @@ public class HospitalOfferService {
 
     private boolean isReplayOrThrow(HospitalOffer offer, String idempotencyKey, byte[] fingerprint) {
         if (offer.getResponseIdempotencyKey() == null) {
-            if (offer.getStatus() != HospitalOfferStatus.PENDING) {
+            if (offer.getStatus() != HospitalOfferStatus.PENDING
+                    || offer.getClosedAt() != null
+                    || !canRespond(offer.getTransportRequest().getStatus())) {
                 throw new CustomException(ErrorCode.HOSPITAL_OFFER_ALREADY_DECIDED);
             }
             return false;
@@ -495,7 +497,12 @@ public class HospitalOfferService {
                 offer.getRespondedAt(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
-                offer.getWithdrawnAt()
+                offer.getWithdrawnAt(),
+                canConfirmHandoff(offer),
+                offer.getTransportRequest().getHandoffRequestedAt(),
+                offer.getTransportRequest().getCompletedAt(),
+                offer.getTransportRequest().getCancelledAt(),
+                offer.getTransportRequest().getCancellationReason()
         );
     }
 
@@ -526,7 +533,12 @@ public class HospitalOfferService {
                 offer.getRespondedAt(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
-                offer.getWithdrawnAt()
+                offer.getWithdrawnAt(),
+                canConfirmHandoff(offer),
+                offer.getTransportRequest().getHandoffRequestedAt(),
+                offer.getTransportRequest().getCompletedAt(),
+                offer.getTransportRequest().getCancelledAt(),
+                offer.getTransportRequest().getCancellationReason()
         );
     }
 
@@ -633,11 +645,20 @@ public class HospitalOfferService {
                 offer.getWithdrawalDetail(),
                 offer.getRespondedAt(),
                 offer.getWithdrawnAt(),
+                canConfirmHandoff(offer),
+                offer.getTransportRequest().getHandoffRequestedAt(),
+                offer.getTransportRequest().getCompletedAt(),
+                offer.getTransportRequest().getCancelledAt(),
+                offer.getTransportRequest().getCancellationReason(),
                 now
         );
     }
 
     private boolean isHiddenResponseHistory(HospitalOffer offer) {
+        if (offer.getTransportRequest().getStatus() == TransportRequestStatus.COMPLETED
+                || offer.getTransportRequest().getStatus() == TransportRequestStatus.CANCELLED) {
+            return true;
+        }
         if (offer.getStatus() == HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) {
             return true;
         }
@@ -656,6 +677,20 @@ public class HospitalOfferService {
         }
         TransportRequestStatus status = offer.getTransportRequest().getStatus();
         return status == TransportRequestStatus.ACCEPTED_AVAILABLE
+                || status == TransportRequestStatus.EN_ROUTE;
+    }
+
+    private boolean canConfirmHandoff(HospitalOffer offer) {
+        return offer.getClosedAt() == null
+                && offer.getStatus() == HospitalOfferStatus.ACCEPTED
+                && offer.getTransportRequest().getStatus() == TransportRequestStatus.HANDOFF_REQUESTED
+                && offer.getTransportRequest().hasDestination(offer);
+    }
+
+    private boolean canRespond(TransportRequestStatus status) {
+        return status == TransportRequestStatus.SEARCHING
+                || status == TransportRequestStatus.CANDIDATES_EXHAUSTED
+                || status == TransportRequestStatus.ACCEPTED_AVAILABLE
                 || status == TransportRequestStatus.EN_ROUTE;
     }
 
