@@ -5,5 +5,6 @@ public enum HospitalOfferStatus {
     PENDING,
     ACCEPTED,
     REJECTED,
-    NO_RESPONSE
+    NO_RESPONSE,
+    ACCEPTANCE_WITHDRAWN
 }

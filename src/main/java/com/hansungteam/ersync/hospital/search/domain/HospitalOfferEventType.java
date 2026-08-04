@@ -5,5 +5,6 @@ public enum HospitalOfferEventType {
     OFFERED,
     ACCEPTED,
     REJECTED,
-    NO_RESPONSE
+    NO_RESPONSE,
+    ACCEPTANCE_WITHDRAWN
 }

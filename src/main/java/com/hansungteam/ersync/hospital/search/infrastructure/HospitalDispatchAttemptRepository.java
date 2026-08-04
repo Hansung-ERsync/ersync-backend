@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 /** 병원 탐색 회차 영속성 접근점입니다. */
 public interface HospitalDispatchAttemptRepository extends JpaRepository<HospitalDispatchAttempt, Long> {
@@ -27,6 +28,23 @@ public interface HospitalDispatchAttemptRepository extends JpaRepository<Hospita
     Optional<HospitalDispatchAttempt> findByTransportRequestPublicIdAndRetryIdempotencyKey(
             String transportRequestId,
             String retryIdempotencyKey
+    );
+
+    Optional<HospitalDispatchAttempt> findTopByTransportRequestIdAndStatusOrderByAttemptNumberDesc(
+            Long transportRequestId,
+            HospitalDispatchAttemptStatus status
+    );
+
+    @Query("select attempt.transportRequest.id from HospitalDispatchAttempt attempt where attempt.id = :id")
+    Optional<Long> findTransportRequestIdById(@Param("id") Long id);
+
+    @Query("select attempt.id from HospitalDispatchAttempt attempt "
+            + "where attempt.transportRequest.id = :transportRequestId and attempt.status = :status "
+            + "order by attempt.attemptNumber desc")
+    List<Long> findLatestIdsByTransportRequestIdAndStatus(
+            @Param("transportRequestId") Long transportRequestId,
+            @Param("status") HospitalDispatchAttemptStatus status,
+            Pageable pageable
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -59,4 +59,18 @@ public class HospitalOfferController {
                 request
         );
     }
+
+    @PostMapping("/{offerId}/withdraw-acceptance")
+    public HospitalAcceptanceWithdrawalResponse withdrawAcceptance(
+            @PathVariable String offerId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody WithdrawHospitalAcceptanceRequest request
+    ) {
+        return hospitalOfferService.withdrawAcceptance(
+                currentAccountProvider.require(),
+                offerId,
+                idempotencyKey,
+                request
+        );
+    }
 }

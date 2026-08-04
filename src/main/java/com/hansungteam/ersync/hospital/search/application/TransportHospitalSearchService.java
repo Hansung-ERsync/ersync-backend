@@ -62,6 +62,9 @@ public class TransportHospitalSearchService {
         return new TransportHospitalSearchResponse(
                 request.getPublicId(),
                 request.getStatus(),
+                request.getCurrentDestinationOffer() == null
+                        ? null
+                        : request.getCurrentDestinationOffer().getPublicId(),
                 toAttempt(attempt),
                 exhaustionReason(request, offers),
                 offers.stream().map(offer -> toOffer(request, offer)).toList(),
@@ -172,13 +175,15 @@ public class TransportHospitalSearchService {
             HospitalOffer offer
     ) {
         boolean showContact = offer.getStatus() == HospitalOfferStatus.ACCEPTED
-                || request.getStatus() == TransportRequestStatus.CANDIDATES_EXHAUSTED;
+                || (request.getStatus() == TransportRequestStatus.CANDIDATES_EXHAUSTED
+                && offer.getStatus() != HospitalOfferStatus.ACCEPTANCE_WITHDRAWN);
         return new TransportHospitalSearchResponse.Offer(
                 offer.getPublicId(),
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getHospitalNameSnapshot(),
                 showContact ? offer.getHospitalContactSnapshot() : null,
                 offer.getStatus(),
+                request.hasDestination(offer),
                 offer.getStraightLineDistanceMeters(),
                 offer.getRouteEstimateStatus(),
                 offer.getRouteDistanceMeters(),
@@ -186,8 +191,11 @@ public class TransportHospitalSearchService {
                 offer.getEtaCalculatedAt(),
                 offer.getRejectionReason(),
                 offer.getRejectionDetail(),
+                offer.getWithdrawalReason(),
+                offer.getWithdrawalDetail(),
                 offer.getOfferedAt(),
                 offer.getRespondedAt(),
+                offer.getWithdrawnAt(),
                 offer.getClosedAt()
         );
     }

@@ -20,6 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.UUID;
 
@@ -45,6 +46,10 @@ public class HospitalDispatchAttempt {
     private int attemptNumber;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "trigger_type", nullable = false, length = 30)
+    private HospitalDispatchAttemptTrigger triggerType;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private HospitalDispatchAttemptStatus status;
 
@@ -62,6 +67,12 @@ public class HospitalDispatchAttempt {
 
     @Column(name = "retry_fingerprint", columnDefinition = "binary(32)")
     private byte[] retryFingerprint;
+
+    @Column(name = "search_origin_latitude", nullable = false, precision = 10, scale = 7)
+    private BigDecimal searchOriginLatitude;
+
+    @Column(name = "search_origin_longitude", nullable = false, precision = 10, scale = 7)
+    private BigDecimal searchOriginLongitude;
 
     @Column(name = "started_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant startedAt;
@@ -82,25 +93,40 @@ public class HospitalDispatchAttempt {
     private HospitalDispatchAttempt(
             TransportRequest transportRequest,
             int attemptNumber,
+            HospitalDispatchAttemptTrigger triggerType,
             String retryIdempotencyKey,
             byte[] retryFingerprint,
+            BigDecimal searchOriginLatitude,
+            BigDecimal searchOriginLongitude,
             Instant startedAt
     ) {
         this.publicId = UUID.randomUUID().toString();
         this.transportRequest = transportRequest;
         this.attemptNumber = attemptNumber;
+        this.triggerType = triggerType;
         this.status = HospitalDispatchAttemptStatus.SEARCHING;
         this.retryIdempotencyKey = retryIdempotencyKey;
         this.retryFingerprint = retryFingerprint == null
                 ? null
                 : Arrays.copyOf(retryFingerprint, retryFingerprint.length);
+        this.searchOriginLatitude = searchOriginLatitude;
+        this.searchOriginLongitude = searchOriginLongitude;
         this.startedAt = startedAt;
         this.createdAt = startedAt;
         this.updatedAt = startedAt;
     }
 
     public static HospitalDispatchAttempt initial(TransportRequest transportRequest, Instant startedAt) {
-        return new HospitalDispatchAttempt(transportRequest, 1, null, null, startedAt);
+        return new HospitalDispatchAttempt(
+                transportRequest,
+                1,
+                HospitalDispatchAttemptTrigger.INITIAL,
+                null,
+                null,
+                transportRequest.getOriginLatitude(),
+                transportRequest.getOriginLongitude(),
+                startedAt
+        );
     }
 
     public static HospitalDispatchAttempt retry(
@@ -113,8 +139,30 @@ public class HospitalDispatchAttempt {
         return new HospitalDispatchAttempt(
                 transportRequest,
                 attemptNumber,
+                HospitalDispatchAttemptTrigger.MANUAL_RETRY,
                 retryIdempotencyKey,
                 retryFingerprint,
+                transportRequest.getOriginLatitude(),
+                transportRequest.getOriginLongitude(),
+                startedAt
+        );
+    }
+
+    public static HospitalDispatchAttempt withdrawalRecovery(
+            TransportRequest transportRequest,
+            int attemptNumber,
+            BigDecimal searchOriginLatitude,
+            BigDecimal searchOriginLongitude,
+            Instant startedAt
+    ) {
+        return new HospitalDispatchAttempt(
+                transportRequest,
+                attemptNumber,
+                HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL,
+                null,
+                null,
+                searchOriginLatitude,
+                searchOriginLongitude,
                 startedAt
         );
     }
@@ -127,6 +175,12 @@ public class HospitalDispatchAttempt {
 
     public void stopOnAcceptance(Instant endedAt) {
         status = HospitalDispatchAttemptStatus.STOPPED_ON_ACCEPTANCE;
+        nextExpansionAt = null;
+        this.endedAt = endedAt;
+    }
+
+    public void stopOnDestination(Instant endedAt) {
+        status = HospitalDispatchAttemptStatus.STOPPED_ON_DESTINATION;
         nextExpansionAt = null;
         this.endedAt = endedAt;
     }

@@ -1,6 +1,7 @@
 package com.hansungteam.ersync.hospital.search.application;
 
 import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -21,6 +22,10 @@ public class HospitalCommandFingerprint {
 
     public byte[] retry(String transportRequestId) {
         return digest("RETRY|" + transportRequestId);
+    }
+
+    public byte[] withdraw(HospitalAcceptanceWithdrawalReason reason, String detail) {
+        return digest("WITHDRAW|" + reason.name() + "|" + (detail == null ? "" : detail));
     }
 
     private byte[] digest(String value) {

@@ -1,6 +1,7 @@
 package com.hansungteam.ersync.hospital.search.api;
 
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 
@@ -20,20 +21,26 @@ public record HospitalOfferListResponse(
     public record Item(
             String offerId,
             String transportRequestId,
-            int dispatchAttemptNumber,
+            Integer dispatchAttemptNumber,
             TransportRequestStatus transportRequestStatus,
             HospitalOfferStatus offerStatus,
+            boolean currentDestination,
+            boolean canWithdraw,
             String ageStatus,
             Integer ageYears,
             String sex,
             String preKtasClassificationStatus,
             Integer preKtasLevel,
             String preKtasExceptionReason,
-            long straightLineDistanceMeters,
+            Long straightLineDistanceMeters,
             RouteEstimateStatus routeEstimateStatus,
             Long routeDistanceMeters,
             Long etaSeconds,
-            Instant offeredAt
+            Instant offeredAt,
+            Instant respondedAt,
+            HospitalAcceptanceWithdrawalReason withdrawalReason,
+            String withdrawalDetail,
+            Instant withdrawnAt
     ) {
     }
 }
