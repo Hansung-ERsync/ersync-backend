@@ -2,6 +2,7 @@ package com.hansungteam.ersync.transport;
 
 import com.hansungteam.ersync.assessment.protocol.application.AssessmentProtocolRegistry;
 import com.hansungteam.ersync.assessment.protocol.application.AssessmentProtocolValidator;
+import com.hansungteam.ersync.assessment.protocol.application.ClinicalInputValidator;
 import com.hansungteam.ersync.global.exception.CustomException;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest;
 import com.hansungteam.ersync.transport.domain.AgeStatus;
@@ -28,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AssessmentProtocolValidatorTest {
 
     private final AssessmentProtocolValidator validator = new AssessmentProtocolValidator(
-            new AssessmentProtocolRegistry("ERSYNC_MVP_1.0", "DEV_UNCONFIRMED")
+            new AssessmentProtocolRegistry("ERSYNC_MVP_1.0", "DEV_UNCONFIRMED"),
+            new ClinicalInputValidator()
     );
 
     @Test

@@ -95,6 +95,18 @@ public class HospitalOffer {
     @Column(name = "eta_next_attempt_at", columnDefinition = "datetime(6)")
     private Instant etaNextAttemptAt;
 
+    @Column(name = "route_estimate_generation", nullable = false)
+    private long routeEstimateGeneration;
+
+    @Column(name = "last_success_route_distance_m")
+    private Long lastSuccessRouteDistanceMeters;
+
+    @Column(name = "last_success_eta_seconds")
+    private Long lastSuccessEtaSeconds;
+
+    @Column(name = "last_success_eta_calculated_at", columnDefinition = "datetime(6)")
+    private Instant lastSuccessEtaCalculatedAt;
+
     @Column(name = "response_idempotency_key", length = 100)
     private String responseIdempotencyKey;
 
@@ -303,6 +315,17 @@ public class HospitalOffer {
         etaNextAttemptAt = leaseUntil;
     }
 
+    /** 최신 위치 또는 새 목적지를 기준으로 이전 계산과 구분되는 ETA 세대를 예약합니다. */
+    public void scheduleRouteEstimateRecalculation(Instant scheduledAt) {
+        routeEstimateGeneration++;
+        routeEstimateStatus = RouteEstimateStatus.CALCULATING;
+        routeDistanceMeters = null;
+        etaSeconds = null;
+        etaCalculatedAt = null;
+        etaAttemptCount = 0;
+        etaNextAttemptAt = scheduledAt;
+    }
+
     /** 네이버 계산 결과를 도로 거리와 초 단위 ETA로 확정합니다. */
     public void completeRouteEstimate(long distanceMeters, long etaSeconds, Instant calculatedAt) {
         if (distanceMeters < 0 || etaSeconds < 0) {
@@ -312,6 +335,9 @@ public class HospitalOffer {
         routeDistanceMeters = distanceMeters;
         this.etaSeconds = etaSeconds;
         etaCalculatedAt = calculatedAt;
+        lastSuccessRouteDistanceMeters = distanceMeters;
+        lastSuccessEtaSeconds = etaSeconds;
+        lastSuccessEtaCalculatedAt = calculatedAt;
         etaNextAttemptAt = null;
     }
 

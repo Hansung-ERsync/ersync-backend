@@ -2,6 +2,8 @@ package com.hansungteam.ersync.hospital.search;
 
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
+import com.hansungteam.ersync.audit.domain.AuditAction;
+import com.hansungteam.ersync.audit.infrastructure.AuditEventRepository;
 import com.hansungteam.ersync.auth.application.JwtTokenService;
 import com.hansungteam.ersync.global.security.AuthenticatedAccount;
 import com.hansungteam.ersync.global.security.UserRole;
@@ -9,8 +11,14 @@ import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
+import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
+import com.hansungteam.ersync.hospital.search.application.RouteEstimate;
+import com.hansungteam.ersync.hospital.search.application.RouteEstimatePersistence;
+import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
+import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferEventRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
@@ -21,8 +29,15 @@ import com.hansungteam.ersync.paramedic.domain.ParamedicProfile;
 import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
 import com.hansungteam.ersync.privacy.domain.ContactSharingConsent;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
+import com.hansungteam.ersync.realtime.domain.RealtimeEventType;
+import com.hansungteam.ersync.realtime.infrastructure.RealtimeOutboxEventRepository;
 import com.hansungteam.ersync.transport.ValidTransportRequestFixtures;
 import com.hansungteam.ersync.transport.application.TransportRequestService;
+import com.hansungteam.ersync.transport.application.TransportClinicalUpdateService;
+import com.hansungteam.ersync.transport.application.TransportLocationService;
+import com.hansungteam.ersync.transport.api.UpdateTransportLocationRequest;
+import com.hansungteam.ersync.transport.api.UpdateVitalSignsRequest;
+import com.hansungteam.ersync.transport.destination.application.TransportDestinationService;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import org.junit.jupiter.api.Test;
@@ -64,6 +79,13 @@ class HospitalSearchApiIntegrationTest {
     @Autowired private TransportRequestRepository transportRequestRepository;
     @Autowired private TransportRequestService transportRequestService;
     @Autowired private HospitalSearchService hospitalSearchService;
+    @Autowired private HospitalOfferService hospitalOfferService;
+    @Autowired private TransportDestinationService destinationService;
+    @Autowired private TransportClinicalUpdateService clinicalUpdateService;
+    @Autowired private TransportLocationService transportLocationService;
+    @Autowired private RouteEstimatePersistence routeEstimatePersistence;
+    @Autowired private AuditEventRepository auditEventRepository;
+    @Autowired private RealtimeOutboxEventRepository outboxEventRepository;
     @Autowired private JwtTokenService jwtTokenService;
 
     @Test
@@ -196,6 +218,247 @@ class HospitalSearchApiIntegrationTest {
                 .orElseThrow().getAttemptNumber()).isEqualTo(2);
         assertThat(transportRequestRepository.findByPublicId(requestId).orElseThrow().getStatus())
                 .isEqualTo(TransportRequestStatus.SEARCHING);
+    }
+
+    @Test
+    void candidateHospitalsReadUpdatesUntilDestinationSelectionThenOnlyDestinationCanRead() throws Exception {
+        UserAccount paramedic = createParamedic("timelineparamedic");
+        UserAccount hospitalOne = createHospital("timelinehospital1", "37.6021000");
+        UserAccount hospitalTwo = createHospital("timelinehospital2", "37.6121000");
+        String requestId = createAndSearch(paramedic, "timeline-search-request");
+        var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var offerOne = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalOne.getId()))
+                .findFirst().orElseThrow();
+        var offerTwo = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalTwo.getId()))
+                .findFirst().orElseThrow();
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerOne.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(4));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerTwo.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
+                .andExpect(status().isOk());
+
+        var initial = ValidTransportRequestFixtures.request().vitalSigns();
+        var update = new UpdateVitalSignsRequest(
+                initial.measuredAt().plusSeconds(60),
+                initial.enteredAt().plusSeconds(60),
+                initial.measurements().stream().map(measurement -> new UpdateVitalSignsRequest.VitalSignInput(
+                        measurement.type(), measurement.state(), measurement.primaryValue(),
+                        measurement.secondaryValue(), measurement.unavailableReason(),
+                        measurement.unavailableDetail()
+                )).toList()
+        );
+        clinicalUpdateService.addVitalSigns(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "timeline-clinical-key",
+                update
+        );
+        transportLocationService.update(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "timeline-location-key",
+                new UpdateTransportLocationRequest(
+                        new BigDecimal("37.7000000"),
+                        new BigDecimal("127.2000000"),
+                        Instant.now()
+                )
+        );
+
+        assertThat(auditEventRepository.countByAction(AuditAction.VITAL_SIGNS_ADDED)).isEqualTo(1);
+        assertThat(auditEventRepository.countByAction(AuditAction.AMBULANCE_LOCATION_UPDATED)).isEqualTo(1);
+        assertThat(outboxEventRepository.countByEventType(RealtimeEventType.VITAL_SIGNS_ADDED)).isEqualTo(2);
+        assertThat(outboxEventRepository.countByEventType(RealtimeEventType.AMBULANCE_LOCATION_UPDATED))
+                .isEqualTo(1);
+        assertThat(outboxEventRepository.findAll())
+                .filteredOn(event -> event.getEventType() == RealtimeEventType.VITAL_SIGNS_ADDED)
+                .allSatisfy(event -> {
+                    assertThat(event.getAggregateType()).isEqualTo("TRANSPORT_REQUEST");
+                    assertThat(event.getAggregatePublicId()).isEqualTo(requestId);
+                    assertThat(event.getAudiencePublicId())
+                            .isIn(hospitalOne.getOrganization().getPublicId(),
+                                    hospitalTwo.getOrganization().getPublicId());
+                });
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", offerOne.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].lastClinicalUpdateAt").isNotEmpty());
+
+        hospitalOfferService.accept(
+                new AuthenticatedAccount(
+                        hospitalOne.getPublicId(), hospitalOne.getOrganization().getPublicId(),
+                        UserRole.HOSPITAL_STAFF
+                ),
+                offerOne.getPublicId(),
+                "timeline-accept-one"
+        );
+        hospitalOfferService.accept(
+                new AuthenticatedAccount(
+                        hospitalTwo.getPublicId(), hospitalTwo.getOrganization().getPublicId(),
+                        UserRole.HOSPITAL_STAFF
+                ),
+                offerTwo.getPublicId(),
+                "timeline-accept-two"
+        );
+        destinationService.select(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "timeline-destination-key",
+                offerOne.getPublicId()
+        );
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerOne.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(5));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerTwo.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", offerOne.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latitude").value(37.7))
+                .andExpect(jsonPath("$.freshness").value("CURRENT"));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", offerTwo.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+
+        Instant routeNow = Instant.now().plusSeconds(1);
+        var oldGeneration = routeEstimatePersistence.claim(
+                offerOne.getId(), routeNow, routeNow.plusSeconds(15)
+        );
+        assertThat(oldGeneration.originLatitude()).isEqualByComparingTo("37.7000000");
+
+        transportLocationService.update(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "timeline-location-key-2",
+                new UpdateTransportLocationRequest(
+                        new BigDecimal("37.7100000"),
+                        new BigDecimal("127.2100000"),
+                        Instant.now().plusSeconds(2)
+                )
+        );
+        routeEstimatePersistence.complete(
+                offerOne.getId(), oldGeneration.generation(), new RouteEstimate(9999, 999), routeNow
+        );
+        var afterStaleResult = offerRepository.findById(offerOne.getId()).orElseThrow();
+        assertThat(afterStaleResult.getRouteEstimateStatus()).isEqualTo(RouteEstimateStatus.CALCULATING);
+        assertThat(afterStaleResult.getRouteDistanceMeters()).isNull();
+
+        var currentGeneration = routeEstimatePersistence.claim(
+                offerOne.getId(), routeNow.plusSeconds(1), routeNow.plusSeconds(16)
+        );
+        assertThat(currentGeneration.generation()).isGreaterThan(oldGeneration.generation());
+        assertThat(currentGeneration.originLatitude()).isEqualByComparingTo("37.7100000");
+        routeEstimatePersistence.complete(
+                offerOne.getId(), currentGeneration.generation(), new RouteEstimate(1200, 180),
+                routeNow.plusSeconds(2)
+        );
+        var available = offerRepository.findById(offerOne.getId()).orElseThrow();
+        assertThat(available.getRouteEstimateStatus()).isEqualTo(RouteEstimateStatus.AVAILABLE);
+        assertThat(available.getLastSuccessRouteDistanceMeters()).isEqualTo(1200);
+
+        transportLocationService.update(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "timeline-location-key-3",
+                new UpdateTransportLocationRequest(
+                        new BigDecimal("37.7200000"),
+                        new BigDecimal("127.2200000"),
+                        Instant.now().plusSeconds(3)
+                )
+        );
+        long failedGeneration = offerRepository.findById(offerOne.getId()).orElseThrow()
+                .getRouteEstimateGeneration();
+        routeEstimatePersistence.finishUnavailable(offerOne.getId(), failedGeneration, routeNow.plusSeconds(3));
+        var unavailable = offerRepository.findById(offerOne.getId()).orElseThrow();
+        assertThat(unavailable.getRouteEstimateStatus()).isEqualTo(RouteEstimateStatus.UNAVAILABLE);
+        assertThat(unavailable.getRouteDistanceMeters()).isNull();
+        assertThat(unavailable.getLastSuccessRouteDistanceMeters()).isEqualTo(1200);
+        assertThat(auditEventRepository.countByAction(AuditAction.AMBULANCE_LOCATION_UPDATED)).isEqualTo(3);
+        assertThat(outboxEventRepository.countByEventType(RealtimeEventType.AMBULANCE_LOCATION_UPDATED))
+                .isEqualTo(5);
+    }
+
+    @Test
+    void inFlightDynamicEtaIsDiscardedAfterCurrentDestinationWithdrawal() {
+        UserAccount paramedic = createParamedic("withdrawaletamedic");
+        UserAccount hospital = createHospital("withdrawaletahospital", "37.6021000");
+        String requestId = createAndSearch(paramedic, "withdrawal-eta-request");
+        var offer = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId).stream()
+                .filter(candidate -> candidate.getHospitalProfile().getAccount().getPublicId()
+                        .equals(hospital.getPublicId()))
+                .findFirst()
+                .orElseThrow();
+        AuthenticatedAccount hospitalPrincipal = new AuthenticatedAccount(
+                hospital.getPublicId(), hospital.getOrganization().getPublicId(), UserRole.HOSPITAL_STAFF
+        );
+        AuthenticatedAccount paramedicPrincipal = new AuthenticatedAccount(
+                paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+        );
+        hospitalOfferService.accept(hospitalPrincipal, offer.getPublicId(), "withdrawal-eta-accept");
+        destinationService.select(
+                paramedicPrincipal, requestId, "withdrawal-eta-destination", offer.getPublicId()
+        );
+        transportLocationService.update(
+                paramedicPrincipal,
+                requestId,
+                "withdrawal-eta-location",
+                new UpdateTransportLocationRequest(
+                        new BigDecimal("37.7100000"),
+                        new BigDecimal("127.2100000"),
+                        Instant.parse("2026-08-04T10:30:00Z")
+                )
+        );
+
+        Instant routeNow = Instant.now().plusSeconds(1);
+        var inFlight = routeEstimatePersistence.claim(offer.getId(), routeNow, routeNow.plusSeconds(15));
+        assertThat(inFlight).isNotNull();
+        assertThat(inFlight.generation()).isGreaterThan(0);
+
+        hospitalOfferService.withdrawAcceptance(
+                hospitalPrincipal,
+                offer.getPublicId(),
+                "withdrawal-eta-command",
+                new WithdrawHospitalAcceptanceRequest(HospitalAcceptanceWithdrawalReason.BED_SHORTAGE, null)
+        );
+        routeEstimatePersistence.complete(
+                offer.getId(), inFlight.generation(), new RouteEstimate(9999, 999), routeNow.plusSeconds(2)
+        );
+
+        var afterLateResult = offerRepository.findById(offer.getId()).orElseThrow();
+        assertThat(afterLateResult.getStatus()).isEqualTo(HospitalOfferStatus.ACCEPTANCE_WITHDRAWN);
+        assertThat(afterLateResult.getRouteDistanceMeters()).isNull();
+        assertThat(afterLateResult.getEtaSeconds()).isNull();
+
+        assertThat(routeEstimatePersistence.claim(
+                offer.getId(), routeNow.plusSeconds(16), routeNow.plusSeconds(31)
+        )).isNull();
+        assertThat(offerRepository.findById(offer.getId()).orElseThrow().getRouteEstimateStatus())
+                .isEqualTo(RouteEstimateStatus.UNAVAILABLE);
     }
 
     private String createAndSearch(UserAccount paramedic, String idempotencyKey) {

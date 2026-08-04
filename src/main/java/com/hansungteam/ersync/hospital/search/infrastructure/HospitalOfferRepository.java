@@ -30,6 +30,9 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
             @Param("transportRequestId") Long transportRequestId
     );
 
+    @Query("select offer.transportRequest.id from HospitalOffer offer where offer.id = :id")
+    Optional<Long> findTransportRequestIdById(@Param("id") Long id);
+
     @Query("select offer.id as offerId, offer.transportRequest.id as transportRequestId, "
             + "offer.dispatchAttempt.id as dispatchAttemptId from HospitalOffer offer "
             + "where offer.publicId = :publicId "
@@ -73,7 +76,8 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
     @EntityGraph(attributePaths = {"transportRequest", "dispatchAttempt", "hospitalProfile"})
     @Query("select offer from HospitalOffer offer "
             + "where offer.hospitalProfile.id = :hospitalProfileId and ("
-            + "offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING or "
+            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING and "
+            + "offer.transportRequest.currentDestinationOffer is null) or "
             + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and ("
             + "offer.transportRequest.currentDestinationOffer is null or "
             + "offer.transportRequest.currentDestinationOffer.id = offer.id)))")
@@ -89,6 +93,8 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.REJECTED, "
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.NO_RESPONSE, "
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) or "
+            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING and "
+            + "offer.transportRequest.currentDestinationOffer is not null) or "
             + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and "
             + "offer.transportRequest.currentDestinationOffer is not null and "
             + "offer.transportRequest.currentDestinationOffer.id <> offer.id))")

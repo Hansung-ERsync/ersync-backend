@@ -108,7 +108,10 @@ public record HospitalOfferDetailResponse(
             RouteEstimateStatus status,
             Long routeDistanceMeters,
             Long etaSeconds,
-            Instant calculatedAt
+            Instant calculatedAt,
+            Long lastSuccessfulRouteDistanceMeters,
+            Long lastSuccessfulEtaSeconds,
+            Instant lastSuccessfulCalculatedAt
     ) {
     }
 

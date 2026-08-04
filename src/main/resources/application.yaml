@@ -68,6 +68,8 @@ ersync:
     radius-increment-km: 10
     maximum-radius-km: 100
     response-window: PT60S
+  location:
+    stale-after: PT30S
   maps:
     naver:
       enabled: ${ERSYNC_NAVER_MAPS_ENABLED:false}

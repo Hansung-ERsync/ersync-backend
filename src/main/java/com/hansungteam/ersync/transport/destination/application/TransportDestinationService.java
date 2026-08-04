@@ -27,6 +27,7 @@ import com.hansungteam.ersync.transport.destination.infrastructure.TransportDest
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
+import com.hansungteam.ersync.transport.infrastructure.TransportCurrentLocationRepository;
 import lombok.RequiredArgsConstructor;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -53,6 +54,7 @@ public class TransportDestinationService {
     private final HospitalOfferRepository hospitalOfferRepository;
     private final HospitalDispatchAttemptRepository attemptRepository;
     private final TransportDestinationCommandRepository commandRepository;
+    private final TransportCurrentLocationRepository currentLocationRepository;
     private final RealtimeOutboxEventRepository outboxEventRepository;
     private final AuditService auditService;
     private final TransportDestinationFingerprint fingerprint;
@@ -99,6 +101,7 @@ public class TransportDestinationService {
                 .orElseThrow(() -> new CustomException(ErrorCode.TRANSPORT_DESTINATION_NOT_ACCEPTED));
         HospitalOffer destination = hospitalOfferRepository.findLockedById(destinationOfferPk)
                 .orElseThrow(() -> new CustomException(ErrorCode.TRANSPORT_DESTINATION_NOT_ACCEPTED));
+        entityManager.refresh(destination, LockModeType.PESSIMISTIC_WRITE);
         if (!destination.getTransportRequest().getId().equals(request.getId())
                 || destination.getStatus() != HospitalOfferStatus.ACCEPTED) {
             throw new CustomException(ErrorCode.TRANSPORT_DESTINATION_NOT_ACCEPTED);
@@ -111,6 +114,10 @@ public class TransportDestinationService {
         }
 
         Instant changedAt = clock.instant();
+        if (resultType != TransportDestinationResultType.UNCHANGED
+                && currentLocationRepository.findByTransportRequestId(request.getId()).isPresent()) {
+            destination.scheduleRouteEstimateRecalculation(changedAt);
+        }
         if (activeRecovery != null) {
             activeRecovery.stopOnDestination(changedAt);
         }

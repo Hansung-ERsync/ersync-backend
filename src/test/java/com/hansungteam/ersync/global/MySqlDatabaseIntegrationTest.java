@@ -101,12 +101,14 @@ class MySqlDatabaseIntegrationTest {
                       'hospital_offers',
                       'hospital_offer_events',
                       'realtime_outbox_events',
-                      'transport_destination_commands'
+                      'transport_destination_commands',
+                      'transport_update_commands',
+                      'transport_current_locations'
                   )
                 """, Integer.class);
 
         assertThat(version).startsWith("8.4");
-        assertThat(featureTableCount).isEqualTo(26);
+        assertThat(featureTableCount).isEqualTo(28);
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.columns
@@ -115,8 +117,12 @@ class MySqlDatabaseIntegrationTest {
                     (table_name = 'transport_requests' AND column_name = 'current_destination_offer_id')
                     OR (table_name = 'hospital_offers' AND column_name = 'withdrawal_reason')
                     OR (table_name = 'hospital_dispatch_attempts' AND column_name = 'trigger_type')
+                    OR (table_name = 'hospital_offers' AND column_name = 'route_estimate_generation')
+                    OR (table_name = 'hospital_offers' AND column_name = 'last_success_route_distance_m')
+                    OR (table_name = 'hospital_offers' AND column_name = 'last_success_eta_seconds')
+                    OR (table_name = 'hospital_offers' AND column_name = 'last_success_eta_calculated_at')
                   )
-                """, Integer.class)).isEqualTo(3);
+                """, Integer.class)).isEqualTo(7);
     }
 
     @Test
