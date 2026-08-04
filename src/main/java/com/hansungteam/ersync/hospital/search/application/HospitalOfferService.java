@@ -11,11 +11,16 @@ import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.api.HospitalOfferDecisionResponse;
+import com.hansungteam.ersync.hospital.search.api.HospitalAcceptanceWithdrawalResponse;
 import com.hansungteam.ersync.hospital.search.api.HospitalOfferDetailResponse;
 import com.hansungteam.ersync.hospital.search.api.HospitalOfferListResponse;
 import com.hansungteam.ersync.hospital.search.api.HospitalOfferView;
 import com.hansungteam.ersync.hospital.search.api.RejectHospitalOfferRequest;
+import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttempt;
+import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptTrigger;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEvent;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEventType;
@@ -35,6 +40,9 @@ import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.infrastructure.CurrentPatientSnapshotRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import lombok.RequiredArgsConstructor;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -66,6 +74,9 @@ public class HospitalOfferService {
     private final AuditService auditService;
     private final Clock clock;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Transactional(readOnly = true)
     public HospitalOfferListResponse list(
             AuthenticatedAccount principal,
@@ -77,17 +88,17 @@ public class HospitalOfferService {
         if (page < 0 || size < 1 || size > 100) {
             throw new CustomException(ErrorCode.COMMON_REQUEST_VALIDATION_FAILED);
         }
-        Set<HospitalOfferStatus> statuses = view == HospitalOfferView.ACTIVE
-                ? Set.of(HospitalOfferStatus.PENDING, HospitalOfferStatus.ACCEPTED)
-                : Set.of(HospitalOfferStatus.REJECTED, HospitalOfferStatus.NO_RESPONSE);
-        Page<HospitalOffer> result = offerRepository.findByHospitalProfileIdAndStatusIn(
-                profile.getId(),
-                statuses,
-                PageRequest.of(page, size, Sort.by("offeredAt").ascending().and(Sort.by("id").ascending()))
+        PageRequest pageable = PageRequest.of(
+                page, size, Sort.by("offeredAt").ascending().and(Sort.by("id").ascending())
         );
+        Page<HospitalOffer> result = view == HospitalOfferView.ACTIVE
+                ? offerRepository.findActiveForHospital(profile.getId(), pageable)
+                : offerRepository.findHistoryForHospital(profile.getId(), pageable);
         Instant now = clock.instant();
         List<HospitalOfferListResponse.Item> items = result.getContent().stream()
-                .map(offer -> toListItem(offer, requireSnapshot(offer)))
+                .map(offer -> isHiddenResponseHistory(offer)
+                        ? toMinimalHistoryItem(offer)
+                        : toListItem(offer, requireSnapshot(offer)))
                 .toList();
         return new HospitalOfferListResponse(
                 items,
@@ -108,6 +119,9 @@ public class HospitalOfferService {
                         profile.getOrganization().getPublicId()
                 )
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
+        if (isHiddenResponseHistory(offer)) {
+            throw new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND);
+        }
         return toDetail(offer, requireSnapshot(offer), clock.instant());
     }
 
@@ -127,12 +141,12 @@ public class HospitalOfferService {
 
         Instant decidedAt = clock.instant();
         TransportRequest transportRequest = offer.getTransportRequest();
-        HospitalDispatchAttempt attempt = offer.getDispatchAttempt();
         offer.accept(account, idempotencyKey, fingerprint, decidedAt);
-        if (transportRequest.getStatus() == TransportRequestStatus.SEARCHING) {
+        if (transportRequest.getStatus() == TransportRequestStatus.SEARCHING
+                || transportRequest.getStatus() == TransportRequestStatus.CANDIDATES_EXHAUSTED) {
             transportRequest.markAcceptedAvailable();
-            attempt.stopOnAcceptance(decidedAt);
         }
+        stopActiveSearchOnAcceptance(transportRequest, offer, decidedAt);
         recordDecision(
                 offer,
                 HospitalOfferEventType.ACCEPTED,
@@ -182,20 +196,113 @@ public class HospitalOfferService {
         return decisionResponse(offer, false);
     }
 
+    @Transactional
+    public HospitalAcceptanceWithdrawalResponse withdrawAcceptance(
+            AuthenticatedAccount principal,
+            String offerId,
+            String requestedIdempotencyKey,
+            WithdrawHospitalAcceptanceRequest request
+    ) {
+        String idempotencyKey = IdempotencyKeyPolicy.normalizeAndValidate(requestedIdempotencyKey);
+        String detail = normalizeWithdrawalDetail(request.reason(), request.detail());
+        UserAccount account = requireHospitalAccount(principal, true);
+        HospitalOffer offer = lockScopedOffer(principal, offerId);
+        byte[] fingerprint = commandFingerprint.withdraw(request.reason(), detail);
+
+        if (offer.getWithdrawalIdempotencyKey() != null) {
+            if (!offer.hasWithdrawalIdempotencyKey(idempotencyKey)) {
+                throw new CustomException(ErrorCode.HOSPITAL_OFFER_ALREADY_DECIDED);
+            }
+            if (!offer.hasSameWithdrawalFingerprint(fingerprint)) {
+                throw new CustomException(ErrorCode.COMMON_DUPLICATE_CONFLICT);
+            }
+            return withdrawalResponse(offer, true);
+        }
+        if (offer.getStatus() != HospitalOfferStatus.ACCEPTED) {
+            throw new CustomException(ErrorCode.HOSPITAL_OFFER_ALREADY_DECIDED);
+        }
+
+        TransportRequest transportRequest = offer.getTransportRequest();
+        if (transportRequest.getStatus() != TransportRequestStatus.ACCEPTED_AVAILABLE
+                && transportRequest.getStatus() != TransportRequestStatus.EN_ROUTE) {
+            throw new CustomException(ErrorCode.TRANSPORT_STATUS_CANNOT_CHANGE);
+        }
+
+        HospitalOffer currentDestination = transportRequest.getCurrentDestinationOffer();
+        boolean currentDestinationWithdrawn = currentDestination != null
+                && currentDestination.getId().equals(offer.getId());
+        boolean searchRestarted = currentDestination == null || currentDestinationWithdrawn;
+        long acceptedCount = offerRepository.countByTransportRequestIdAndStatus(
+                transportRequest.getId(), HospitalOfferStatus.ACCEPTED
+        );
+        boolean hasRemainingAcceptedOffer = acceptedCount > 1;
+        if (currentDestinationWithdrawn) {
+            transportRequest.clearDestinationAfterWithdrawal(hasRemainingAcceptedOffer);
+        } else if (currentDestination == null) {
+            transportRequest.transitionAfterDestinationFreeWithdrawal(hasRemainingAcceptedOffer);
+        }
+
+        Instant withdrawnAt = clock.instant();
+        HospitalOffer resultingDestination = searchRestarted ? null : currentDestination;
+        offer.withdrawAcceptance(
+                account,
+                request.reason(),
+                detail,
+                idempotencyKey,
+                fingerprint,
+                withdrawnAt,
+                transportRequest.getStatus(),
+                resultingDestination,
+                searchRestarted
+        );
+        offerEventRepository.save(HospitalOfferEvent.recordWithdrawal(
+                offer,
+                account,
+                account.getOrganization(),
+                request.reason(),
+                detail,
+                withdrawnAt
+        ));
+        if (searchRestarted) {
+            hospitalSearchService.startWithdrawalRecovery(transportRequest, withdrawnAt);
+        }
+        recordWithdrawalSignals(offer, account, withdrawnAt);
+        return withdrawalResponse(offer, false);
+    }
+
     private HospitalOffer lockScopedOffer(AuthenticatedAccount principal, String offerId) {
-        HospitalOffer scoped = offerRepository
-                .findByPublicIdAndHospitalProfileOrganizationPublicId(offerId, principal.organizationId())
+        HospitalOfferRepository.HospitalOfferLockScope scope = offerRepository
+                .findLockScope(offerId, principal.organizationId())
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
-        transportRequestRepository.findLockedById(scoped.getTransportRequest().getId())
+        TransportRequest lockedRequest = transportRequestRepository.findLockedById(scope.getTransportRequestId())
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
-        attemptRepository.findLockedById(scoped.getDispatchAttempt().getId())
+        entityManager.refresh(lockedRequest, LockModeType.PESSIMISTIC_WRITE);
+        attemptRepository.findLockedById(scope.getDispatchAttemptId())
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
-        HospitalOffer locked = offerRepository.findLockedById(scoped.getId())
+        HospitalOffer locked = offerRepository.findLockedById(scope.getOfferId())
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
         if (!locked.getHospitalProfile().getOrganization().getPublicId().equals(principal.organizationId())) {
             throw new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND);
         }
         return locked;
+    }
+
+    private void stopActiveSearchOnAcceptance(
+            TransportRequest transportRequest,
+            HospitalOffer acceptedOffer,
+            Instant acceptedAt
+    ) {
+        if (transportRequest.getCurrentDestinationOffer() != null) {
+            return;
+        }
+        attemptRepository.findTopByTransportRequestIdAndStatusOrderByAttemptNumberDesc(
+                        transportRequest.getId(),
+                        HospitalDispatchAttemptStatus.SEARCHING
+                )
+                .filter(activeAttempt -> activeAttempt.getTriggerType()
+                        != HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL
+                        || activeAttempt.getId().equals(acceptedOffer.getDispatchAttempt().getId()))
+                .ifPresent(activeAttempt -> activeAttempt.stopOnAcceptance(acceptedAt));
     }
 
     private boolean isReplayOrThrow(HospitalOffer offer, String idempotencyKey, byte[] fingerprint) {
@@ -212,6 +319,67 @@ public class HospitalOfferService {
             throw new CustomException(ErrorCode.COMMON_DUPLICATE_CONFLICT);
         }
         return true;
+    }
+
+    private String normalizeWithdrawalDetail(
+            HospitalAcceptanceWithdrawalReason reason,
+            String requestedDetail
+    ) {
+        if (reason == null) {
+            throw new CustomException(ErrorCode.COMMON_REQUEST_VALIDATION_FAILED);
+        }
+        String detail = requestedDetail == null ? null : requestedDetail.trim();
+        if (reason == HospitalAcceptanceWithdrawalReason.OTHER) {
+            if (detail == null || detail.isEmpty() || detail.length() > 200) {
+                throw new CustomException(ErrorCode.COMMON_REQUEST_VALIDATION_FAILED);
+            }
+            return detail;
+        }
+        return null;
+    }
+
+    private void recordWithdrawalSignals(HospitalOffer offer, UserAccount account, Instant withdrawnAt) {
+        outboxEventRepository.save(RealtimeOutboxEvent.create(
+                RealtimeEventType.HOSPITAL_ACCEPTANCE_WITHDRAWN,
+                RealtimeAudienceType.ACCOUNT,
+                offer.getTransportRequest().getOwnerAccount().getPublicId(),
+                OFFER_AGGREGATE,
+                offer.getPublicId(),
+                withdrawnAt
+        ));
+        outboxEventRepository.save(RealtimeOutboxEvent.create(
+                RealtimeEventType.HOSPITAL_ACCEPTANCE_WITHDRAWN,
+                RealtimeAudienceType.ORGANIZATION,
+                account.getOrganization().getPublicId(),
+                OFFER_AGGREGATE,
+                offer.getPublicId(),
+                withdrawnAt
+        ));
+        auditService.record(
+                AuditAction.HOSPITAL_ACCEPTANCE_WITHDRAWN,
+                account,
+                account.getOrganization(),
+                OFFER_AGGREGATE,
+                offer.getPublicId(),
+                withdrawnAt
+        );
+    }
+
+    private HospitalAcceptanceWithdrawalResponse withdrawalResponse(HospitalOffer offer, boolean replay) {
+        return new HospitalAcceptanceWithdrawalResponse(
+                offer.getPublicId(),
+                offer.getStatus(),
+                offer.getTransportRequest().getPublicId(),
+                offer.getWithdrawalResultingRequestStatus(),
+                offer.getWithdrawalResultingDestinationOffer() == null
+                        ? null
+                        : offer.getWithdrawalResultingDestinationOffer().getPublicId(),
+                offer.getWithdrawalReason(),
+                offer.getWithdrawalDetail(),
+                offer.getWithdrawnAt(),
+                Boolean.TRUE.equals(offer.getWithdrawalSearchRestarted()),
+                replay
+        );
     }
 
     private void recordDecision(
@@ -306,6 +474,8 @@ public class HospitalOfferService {
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getTransportRequest().getStatus(),
                 offer.getStatus(),
+                offer.getTransportRequest().hasDestination(offer),
+                canWithdraw(offer),
                 demographics.getAgeStatus().name(),
                 demographics.getAgeYears(),
                 demographics.getSex().name(),
@@ -316,7 +486,38 @@ public class HospitalOfferService {
                 offer.getRouteEstimateStatus(),
                 offer.getRouteDistanceMeters(),
                 offer.getEtaSeconds(),
-                offer.getOfferedAt()
+                offer.getOfferedAt(),
+                offer.getRespondedAt(),
+                offer.getWithdrawalReason(),
+                offer.getWithdrawalDetail(),
+                offer.getWithdrawnAt()
+        );
+    }
+
+    private HospitalOfferListResponse.Item toMinimalHistoryItem(HospitalOffer offer) {
+        return new HospitalOfferListResponse.Item(
+                offer.getPublicId(),
+                offer.getTransportRequest().getPublicId(),
+                null,
+                offer.getTransportRequest().getStatus(),
+                offer.getStatus(),
+                false,
+                canWithdraw(offer),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                offer.getRespondedAt(),
+                offer.getWithdrawalReason(),
+                offer.getWithdrawalDetail(),
+                offer.getWithdrawnAt()
         );
     }
 
@@ -365,6 +566,8 @@ public class HospitalOfferService {
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getTransportRequest().getStatus(),
                 offer.getStatus(),
+                offer.getTransportRequest().hasDestination(offer),
+                canWithdraw(offer),
                 new HospitalOfferDetailResponse.Patient(
                         demographics.getAgeStatus().name(),
                         demographics.getAgeYears(),
@@ -414,9 +617,30 @@ public class HospitalOfferService {
                 ),
                 offer.getRejectionReason(),
                 offer.getRejectionDetail(),
+                offer.getWithdrawalReason(),
+                offer.getWithdrawalDetail(),
                 offer.getRespondedAt(),
+                offer.getWithdrawnAt(),
                 now
         );
+    }
+
+    private boolean isHiddenResponseHistory(HospitalOffer offer) {
+        if (offer.getStatus() == HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) {
+            return true;
+        }
+        return offer.getStatus() == HospitalOfferStatus.ACCEPTED
+                && offer.getTransportRequest().getCurrentDestinationOffer() != null
+                && !offer.getTransportRequest().hasDestination(offer);
+    }
+
+    private boolean canWithdraw(HospitalOffer offer) {
+        if (offer.getStatus() != HospitalOfferStatus.ACCEPTED) {
+            return false;
+        }
+        TransportRequestStatus status = offer.getTransportRequest().getStatus();
+        return status == TransportRequestStatus.ACCEPTED_AVAILABLE
+                || status == TransportRequestStatus.EN_ROUTE;
     }
 
     private String visibleHospitalContact(HospitalOffer offer) {

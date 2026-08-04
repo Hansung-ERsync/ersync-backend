@@ -1,6 +1,7 @@
 package com.hansungteam.ersync.transport.domain;
 
 import com.hansungteam.ersync.account.domain.UserAccount;
+import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
 import com.hansungteam.ersync.organization.domain.Organization;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -50,6 +51,10 @@ public class TransportRequest {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private TransportRequestStatus status;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "current_destination_offer_id")
+    private HospitalOffer currentDestinationOffer;
 
     @Column(name = "callback_contact", nullable = false, length = 30)
     private String callbackContact;
@@ -153,9 +158,10 @@ public class TransportRequest {
         status = TransportRequestStatus.CANDIDATES_EXHAUSTED;
     }
 
-    /** 첫 병원 수락 뒤 목적지를 선택할 수 있는 상태로 변경합니다. */
+    /** 탐색 중이거나 후보 소진 뒤 병원이 수락하면 목적지를 선택할 수 있는 상태로 변경합니다. */
     public void markAcceptedAvailable() {
-        if (status == TransportRequestStatus.SEARCHING) {
+        if (status == TransportRequestStatus.SEARCHING
+                || status == TransportRequestStatus.CANDIDATES_EXHAUSTED) {
             status = TransportRequestStatus.ACCEPTED_AVAILABLE;
         }
     }
@@ -166,6 +172,48 @@ public class TransportRequest {
             throw new IllegalStateException("Only an exhausted request can restart search");
         }
         status = TransportRequestStatus.SEARCHING;
+    }
+
+    /** 수락 병원을 현재 목적지로 원자적으로 지정하고 이동 중 상태로 전환합니다. */
+    public void selectDestination(HospitalOffer destinationOffer) {
+        if (status != TransportRequestStatus.ACCEPTED_AVAILABLE
+                && status != TransportRequestStatus.EN_ROUTE) {
+            throw new IllegalStateException("Destination cannot be selected in the current request status");
+        }
+        currentDestinationOffer = destinationOffer;
+        status = TransportRequestStatus.EN_ROUTE;
+    }
+
+    /** 현재 목적지 철회 뒤 남은 수락 여부에 따라 요청을 다시 선택·탐색 상태로 전환합니다. */
+    public void clearDestinationAfterWithdrawal(boolean hasRemainingAcceptedOffer) {
+        currentDestinationOffer = null;
+        status = hasRemainingAcceptedOffer
+                ? TransportRequestStatus.ACCEPTED_AVAILABLE
+                : TransportRequestStatus.SEARCHING;
+    }
+
+    /** 목적지가 아직 없던 수락 철회 뒤에도 남은 수락 여부와 요청 상태를 맞춥니다. */
+    public void transitionAfterDestinationFreeWithdrawal(boolean hasRemainingAcceptedOffer) {
+        if (currentDestinationOffer != null) {
+            throw new IllegalStateException("A request with a destination cannot use destination-free withdrawal");
+        }
+        status = hasRemainingAcceptedOffer
+                ? TransportRequestStatus.ACCEPTED_AVAILABLE
+                : TransportRequestStatus.SEARCHING;
+    }
+
+    /** 철회 복구 탐색이 끝날 때 남은 수락이 있으면 선택 가능 상태를 유지합니다. */
+    public void finishWithdrawalRecoverySearch(boolean hasAcceptedOffer) {
+        if (currentDestinationOffer != null) {
+            return;
+        }
+        status = hasAcceptedOffer
+                ? TransportRequestStatus.ACCEPTED_AVAILABLE
+                : TransportRequestStatus.CANDIDATES_EXHAUSTED;
+    }
+
+    public boolean hasDestination(HospitalOffer offer) {
+        return currentDestinationOffer != null && currentDestinationOffer.getId().equals(offer.getId());
     }
 
     @PrePersist

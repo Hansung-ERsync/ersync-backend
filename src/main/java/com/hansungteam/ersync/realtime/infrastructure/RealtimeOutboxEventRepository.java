@@ -16,6 +16,8 @@ import java.util.Optional;
 /** 트랜잭션 outbox 영속성 접근점입니다. */
 public interface RealtimeOutboxEventRepository extends JpaRepository<RealtimeOutboxEvent, Long> {
 
+    long countByEventType(com.hansungteam.ersync.realtime.domain.RealtimeEventType eventType);
+
     @Query("select event.id from RealtimeOutboxEvent event "
             + "where event.publishedAt is null "
             + "and event.nextPublishAttemptAt <= :now order by event.occurredAt asc")

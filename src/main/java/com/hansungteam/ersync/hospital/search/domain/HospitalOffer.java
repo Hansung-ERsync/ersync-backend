@@ -3,6 +3,7 @@ package com.hansungteam.ersync.hospital.search.domain;
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
+import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -107,12 +108,43 @@ public class HospitalOffer {
     @Column(name = "rejection_detail", length = 200)
     private String rejectionDetail;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "withdrawal_reason", length = 50)
+    private HospitalAcceptanceWithdrawalReason withdrawalReason;
+
+    @Column(name = "withdrawal_detail", length = 200)
+    private String withdrawalDetail;
+
+    @Column(name = "withdrawal_idempotency_key", length = 100)
+    private String withdrawalIdempotencyKey;
+
+    @Column(name = "withdrawal_fingerprint", columnDefinition = "binary(32)")
+    private byte[] withdrawalFingerprint;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "responded_by_account_id")
     private UserAccount respondedByAccount;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "withdrawn_by_account_id")
+    private UserAccount withdrawnByAccount;
+
     @Column(name = "responded_at", columnDefinition = "datetime(6)")
     private Instant respondedAt;
+
+    @Column(name = "withdrawn_at", columnDefinition = "datetime(6)")
+    private Instant withdrawnAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "withdrawal_resulting_request_status", length = 30)
+    private TransportRequestStatus withdrawalResultingRequestStatus;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "withdrawal_resulting_destination_offer_id")
+    private HospitalOffer withdrawalResultingDestinationOffer;
+
+    @Column(name = "withdrawal_search_restarted")
+    private Boolean withdrawalSearchRestarted;
 
     @Column(name = "offered_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant offeredAt;
@@ -180,6 +212,42 @@ public class HospitalOffer {
 
     public boolean hasResponseIdempotencyKey(String idempotencyKey) {
         return responseIdempotencyKey != null && responseIdempotencyKey.equals(idempotencyKey);
+    }
+
+    public boolean hasWithdrawalIdempotencyKey(String idempotencyKey) {
+        return withdrawalIdempotencyKey != null && withdrawalIdempotencyKey.equals(idempotencyKey);
+    }
+
+    public boolean hasSameWithdrawalFingerprint(byte[] fingerprint) {
+        return Arrays.equals(withdrawalFingerprint, fingerprint);
+    }
+
+    /** 이미 수락한 병원이 수락을 철회한 사실과 멱등성 정보를 확정합니다. */
+    public void withdrawAcceptance(
+            UserAccount withdrawnByAccount,
+            HospitalAcceptanceWithdrawalReason withdrawalReason,
+            String withdrawalDetail,
+            String idempotencyKey,
+            byte[] fingerprint,
+            Instant withdrawnAt,
+            TransportRequestStatus resultingRequestStatus,
+            HospitalOffer resultingDestinationOffer,
+            boolean searchRestarted
+    ) {
+        if (status != HospitalOfferStatus.ACCEPTED) {
+            throw new IllegalStateException("Only an accepted hospital offer can be withdrawn");
+        }
+        status = HospitalOfferStatus.ACCEPTANCE_WITHDRAWN;
+        this.withdrawnByAccount = withdrawnByAccount;
+        this.withdrawalReason = withdrawalReason;
+        this.withdrawalDetail = withdrawalDetail;
+        this.withdrawalIdempotencyKey = idempotencyKey;
+        this.withdrawalFingerprint = Arrays.copyOf(fingerprint, fingerprint.length);
+        this.withdrawnAt = withdrawnAt;
+        this.closedAt = withdrawnAt;
+        this.withdrawalResultingRequestStatus = resultingRequestStatus;
+        this.withdrawalResultingDestinationOffer = resultingDestinationOffer;
+        this.withdrawalSearchRestarted = searchRestarted;
     }
 
     /** 병원의 수락과 행위자를 제안에 확정합니다. */

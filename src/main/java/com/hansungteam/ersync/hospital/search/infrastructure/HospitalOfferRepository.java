@@ -23,6 +23,35 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
 
     List<HospitalOffer> findByTransportRequestPublicIdOrderByOfferedAtAsc(String transportRequestId);
 
+    @Query("select offer.id from HospitalOffer offer "
+            + "where offer.publicId = :publicId and offer.transportRequest.id = :transportRequestId")
+    Optional<Long> findIdByPublicIdAndTransportRequestId(
+            @Param("publicId") String publicId,
+            @Param("transportRequestId") Long transportRequestId
+    );
+
+    @Query("select offer.id as offerId, offer.transportRequest.id as transportRequestId, "
+            + "offer.dispatchAttempt.id as dispatchAttemptId from HospitalOffer offer "
+            + "where offer.publicId = :publicId "
+            + "and offer.hospitalProfile.organization.publicId = :organizationId")
+    Optional<HospitalOfferLockScope> findLockScope(
+            @Param("publicId") String publicId,
+            @Param("organizationId") String organizationId
+    );
+
+    List<HospitalOffer> findByTransportRequestIdAndStatus(Long transportRequestId, HospitalOfferStatus status);
+
+    long countByTransportRequestIdAndStatus(Long transportRequestId, HospitalOfferStatus status);
+
+    @Query("select distinct offer.hospitalProfile.id from HospitalOffer offer "
+            + "where offer.transportRequest.id = :transportRequestId")
+    List<Long> findContactedHospitalProfileIds(@Param("transportRequestId") Long transportRequestId);
+
+    @Query("select distinct offer.hospitalProfile.id from HospitalOffer offer "
+            + "where offer.transportRequest.id = :transportRequestId "
+            + "and offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTANCE_WITHDRAWN")
+    List<Long> findWithdrawnHospitalProfileIds(@Param("transportRequestId") Long transportRequestId);
+
     @EntityGraph(attributePaths = {
             "transportRequest",
             "dispatchAttempt",
@@ -38,6 +67,33 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
     Page<HospitalOffer> findByHospitalProfileIdAndStatusIn(
             Long hospitalProfileId,
             Collection<HospitalOfferStatus> statuses,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {"transportRequest", "dispatchAttempt", "hospitalProfile"})
+    @Query("select offer from HospitalOffer offer "
+            + "where offer.hospitalProfile.id = :hospitalProfileId and ("
+            + "offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING or "
+            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and ("
+            + "offer.transportRequest.currentDestinationOffer is null or "
+            + "offer.transportRequest.currentDestinationOffer.id = offer.id)))")
+    Page<HospitalOffer> findActiveForHospital(
+            @Param("hospitalProfileId") Long hospitalProfileId,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {"transportRequest", "dispatchAttempt", "hospitalProfile"})
+    @Query("select offer from HospitalOffer offer "
+            + "where offer.hospitalProfile.id = :hospitalProfileId and ("
+            + "offer.status in ("
+            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.REJECTED, "
+            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.NO_RESPONSE, "
+            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) or "
+            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and "
+            + "offer.transportRequest.currentDestinationOffer is not null and "
+            + "offer.transportRequest.currentDestinationOffer.id <> offer.id))")
+    Page<HospitalOffer> findHistoryForHospital(
+            @Param("hospitalProfileId") Long hospitalProfileId,
             Pageable pageable
     );
 
@@ -62,4 +118,12 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
             Long dispatchAttemptId,
             Collection<HospitalOfferStatus> statuses
     );
+
+    interface HospitalOfferLockScope {
+        Long getOfferId();
+
+        Long getTransportRequestId();
+
+        Long getDispatchAttemptId();
+    }
 }

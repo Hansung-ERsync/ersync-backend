@@ -95,12 +95,28 @@ class MySqlDatabaseIntegrationTest {
                       'vital_sign_measurements',
                       'treatment_events',
                       'current_patient_snapshots',
-                      'current_patient_snapshot_treatments'
+                      'current_patient_snapshot_treatments',
+                      'hospital_dispatch_attempts',
+                      'hospital_search_rounds',
+                      'hospital_offers',
+                      'hospital_offer_events',
+                      'realtime_outbox_events',
+                      'transport_destination_commands'
                   )
                 """, Integer.class);
 
         assertThat(version).startsWith("8.4");
-        assertThat(featureTableCount).isEqualTo(20);
+        assertThat(featureTableCount).isEqualTo(26);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND (
+                    (table_name = 'transport_requests' AND column_name = 'current_destination_offer_id')
+                    OR (table_name = 'hospital_offers' AND column_name = 'withdrawal_reason')
+                    OR (table_name = 'hospital_dispatch_attempts' AND column_name = 'trigger_type')
+                  )
+                """, Integer.class)).isEqualTo(3);
     }
 
     @Test

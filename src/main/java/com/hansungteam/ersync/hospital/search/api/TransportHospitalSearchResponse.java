@@ -3,6 +3,7 @@ package com.hansungteam.ersync.hospital.search.api;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 
@@ -13,6 +14,7 @@ import java.util.List;
 public record TransportHospitalSearchResponse(
         String transportRequestId,
         TransportRequestStatus status,
+        String currentDestinationOfferId,
         Attempt currentAttempt,
         String exhaustionReason,
         List<Offer> offers,
@@ -37,6 +39,7 @@ public record TransportHospitalSearchResponse(
             String hospitalName,
             String hospitalContact,
             HospitalOfferStatus status,
+            boolean currentDestination,
             long straightLineDistanceMeters,
             RouteEstimateStatus routeEstimateStatus,
             Long routeDistanceMeters,
@@ -44,8 +47,11 @@ public record TransportHospitalSearchResponse(
             Instant etaCalculatedAt,
             HospitalRejectionReason rejectionReason,
             String rejectionDetail,
+            HospitalAcceptanceWithdrawalReason withdrawalReason,
+            String withdrawalDetail,
             Instant offeredAt,
             Instant respondedAt,
+            Instant withdrawnAt,
             Instant closedAt
     ) {
     }

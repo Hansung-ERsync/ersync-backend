@@ -22,8 +22,20 @@ public interface TransportRequestRepository extends JpaRepository<TransportReque
 
     Optional<TransportRequest> findByPublicId(String publicId);
 
+    @EntityGraph(attributePaths = {"ownerAccount", "organization", "currentDestinationOffer"})
+    Optional<TransportRequest> findByPublicIdAndOwnerAccountPublicId(String publicId, String ownerAccountId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"ownerAccount", "organization"})
+    @EntityGraph(attributePaths = {"ownerAccount", "organization", "currentDestinationOffer"})
+    @Query("select request from TransportRequest request "
+            + "where request.publicId = :publicId and request.ownerAccount.publicId = :ownerAccountId")
+    Optional<TransportRequest> findLockedOwnedByPublicId(
+            @Param("publicId") String publicId,
+            @Param("ownerAccountId") String ownerAccountId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"ownerAccount", "organization", "currentDestinationOffer"})
     @Query("select request from TransportRequest request where request.id = :id")
     Optional<TransportRequest> findLockedById(@Param("id") Long id);
 }

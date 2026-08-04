@@ -58,6 +58,13 @@ public class HospitalOfferEvent {
     @Column(name = "rejection_detail", length = 200)
     private String rejectionDetail;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "withdrawal_reason", length = 50)
+    private HospitalAcceptanceWithdrawalReason withdrawalReason;
+
+    @Column(name = "withdrawal_detail", length = 200)
+    private String withdrawalDetail;
+
     @Column(name = "occurred_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant occurredAt;
 
@@ -98,6 +105,28 @@ public class HospitalOfferEvent {
                 rejectionDetail,
                 occurredAt
         );
+    }
+
+    public static HospitalOfferEvent recordWithdrawal(
+            HospitalOffer hospitalOffer,
+            UserAccount actorAccount,
+            Organization actorOrganization,
+            HospitalAcceptanceWithdrawalReason withdrawalReason,
+            String withdrawalDetail,
+            Instant occurredAt
+    ) {
+        HospitalOfferEvent event = new HospitalOfferEvent(
+                hospitalOffer,
+                HospitalOfferEventType.ACCEPTANCE_WITHDRAWN,
+                actorAccount,
+                actorOrganization,
+                null,
+                null,
+                occurredAt
+        );
+        event.withdrawalReason = withdrawalReason;
+        event.withdrawalDetail = withdrawalDetail;
+        return event;
     }
 
     @PrePersist

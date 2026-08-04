@@ -6,6 +6,7 @@ import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttempt;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptTrigger;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEvent;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEventType;
@@ -49,6 +50,7 @@ public class HospitalSearchService {
     private final RealtimeOutboxEventRepository outboxEventRepository;
     private final HaversineDistanceCalculator distanceCalculator;
     private final HospitalSearchPolicy policy;
+    private final SearchOriginResolver searchOriginResolver;
     private final AuditService auditService;
     private final Clock clock;
 
@@ -68,14 +70,51 @@ public class HospitalSearchService {
         return attempt;
     }
 
+    /** 수락 철회와 같은 트랜잭션에서 기존 요청을 유지한 새 탐색 회차를 예약합니다. */
+    public HospitalDispatchAttempt startWithdrawalRecovery(TransportRequest transportRequest, Instant startedAt) {
+        HospitalDispatchAttempt activeAttempt = attemptRepository
+                .findTopByTransportRequestIdAndStatusOrderByAttemptNumberDesc(
+                        transportRequest.getId(), HospitalDispatchAttemptStatus.SEARCHING
+                )
+                .orElse(null);
+        if (activeAttempt != null) {
+            if (activeAttempt.getTriggerType() != HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL) {
+                throw new IllegalStateException("Only an acceptance withdrawal recovery may remain active");
+            }
+            return activeAttempt;
+        }
+        HospitalDispatchAttempt latest = attemptRepository
+                .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(transportRequest.getPublicId())
+                .orElseThrow(() -> new IllegalStateException("Transport request must have a dispatch attempt"));
+        SearchOriginResolver.SearchOrigin origin = searchOriginResolver.resolve(transportRequest);
+        HospitalDispatchAttempt attempt = HospitalDispatchAttempt.withdrawalRecovery(
+                transportRequest,
+                latest.getAttemptNumber() + 1,
+                origin.latitude(),
+                origin.longitude(),
+                startedAt
+        );
+        attempt.scheduleNextExpansion(0, false, startedAt);
+        attemptRepository.save(attempt);
+        auditService.record(
+                AuditAction.HOSPITAL_SEARCH_STARTED,
+                transportRequest.getOwnerAccount(),
+                transportRequest.getOrganization(),
+                ATTEMPT_AGGREGATE,
+                attempt.getPublicId(),
+                startedAt
+        );
+        return attempt;
+    }
+
     /** scheduler가 고른 작업 하나를 잠근 뒤 최초 탐색을 수행합니다. */
     @Transactional
     public void processDueAttempt(Long attemptId) {
-        HospitalDispatchAttempt scoped = attemptRepository.findById(attemptId).orElse(null);
-        if (scoped == null) {
+        Long transportRequestId = attemptRepository.findTransportRequestIdById(attemptId).orElse(null);
+        if (transportRequestId == null) {
             return;
         }
-        if (transportRequestRepository.findLockedById(scoped.getTransportRequest().getId()).isEmpty()) {
+        if (transportRequestRepository.findLockedById(transportRequestId).isEmpty()) {
             return;
         }
         HospitalDispatchAttempt attempt = attemptRepository.findLockedById(attemptId).orElse(null);
@@ -85,8 +124,7 @@ public class HospitalSearchService {
                 || attempt.getNextExpansionAt().isAfter(clock.instant())) {
             return;
         }
-        if (attempt.getTransportRequest().getStatus()
-                != com.hansungteam.ersync.transport.domain.TransportRequestStatus.SEARCHING) {
+        if (!canProcess(attempt)) {
             return;
         }
         if (attempt.getCurrentRadiusKm() == 0) {
@@ -96,6 +134,20 @@ public class HospitalSearchService {
         } else {
             closeFinalResponseWindow(attempt, clock.instant());
         }
+    }
+
+    private boolean canProcess(HospitalDispatchAttempt attempt) {
+        TransportRequest request = attempt.getTransportRequest();
+        if (request.getCurrentDestinationOffer() != null) {
+            attempt.stopOnDestination(clock.instant());
+            return false;
+        }
+        if (attempt.getTriggerType() == HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL) {
+            return request.getStatus() == com.hansungteam.ersync.transport.domain.TransportRequestStatus.SEARCHING
+                    || request.getStatus()
+                    == com.hansungteam.ersync.transport.domain.TransportRequestStatus.ACCEPTED_AVAILABLE;
+        }
+        return request.getStatus() == com.hansungteam.ersync.transport.domain.TransportRequestStatus.SEARCHING;
     }
 
     /** 최대 반경의 마지막 미결 제안이 거절되면 대기 없이 후보 소진을 확정합니다. */
@@ -121,12 +173,14 @@ public class HospitalSearchService {
 
     private void performInitialSearch(HospitalDispatchAttempt attempt, Instant evaluatedAt) {
         TransportRequest transportRequest = attempt.getTransportRequest();
+        Set<Long> excludedHospitalIds = excludedHospitalIds(attempt);
         List<HospitalCandidate> candidates = hospitalProfileRepository.findEligibleForNewRequests().stream()
+                .filter(profile -> !excludedHospitalIds.contains(profile.getId()))
                 .map(profile -> new HospitalCandidate(
                         profile,
                         distanceCalculator.meters(
-                                transportRequest.getOriginLatitude(),
-                                transportRequest.getOriginLongitude(),
+                                attempt.getSearchOriginLatitude(),
+                                attempt.getSearchOriginLongitude(),
                                 profile.getLatitude(),
                                 profile.getLongitude()
                         )
@@ -260,7 +314,7 @@ public class HospitalSearchService {
             Instant exhaustedAt
     ) {
         attempt.exhaust(exhaustedAt);
-        transportRequest.markCandidatesExhausted();
+        finishExhaustedRequest(attempt, transportRequest);
         outboxEventRepository.save(RealtimeOutboxEvent.create(
                 RealtimeEventType.HOSPITAL_SEARCH_EXHAUSTED,
                 RealtimeAudienceType.ACCOUNT,
@@ -292,7 +346,7 @@ public class HospitalSearchService {
             offeredHospitalIds.add(offer.getHospitalProfile().getId());
         }
 
-        List<HospitalCandidate> eligibleCandidates = candidatesFor(transportRequest);
+        List<HospitalCandidate> eligibleCandidates = candidatesFor(attempt);
         List<HospitalCandidate> newCandidates = candidatesWithin(eligibleCandidates, expandedRadiusKm).stream()
                 .filter(candidate -> !offeredHospitalIds.contains(candidate.profile().getId()))
                 .toList();
@@ -371,7 +425,7 @@ public class HospitalSearchService {
             Instant exhaustedAt
     ) {
         attempt.exhaust(exhaustedAt);
-        transportRequest.markCandidatesExhausted();
+        finishExhaustedRequest(attempt, transportRequest);
         outboxEventRepository.save(RealtimeOutboxEvent.create(
                 RealtimeEventType.HOSPITAL_SEARCH_EXHAUSTED,
                 RealtimeAudienceType.ACCOUNT,
@@ -390,13 +444,41 @@ public class HospitalSearchService {
         );
     }
 
-    private List<HospitalCandidate> candidatesFor(TransportRequest transportRequest) {
+    private void finishExhaustedRequest(
+            HospitalDispatchAttempt attempt,
+            TransportRequest transportRequest
+    ) {
+        if (attempt.getTriggerType() == HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL) {
+            boolean hasAccepted = offerRepository.countByTransportRequestIdAndStatus(
+                    transportRequest.getId(),
+                    com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED
+            ) > 0;
+            transportRequest.finishWithdrawalRecoverySearch(hasAccepted);
+            return;
+        }
+        transportRequest.markCandidatesExhausted();
+    }
+
+    private Set<Long> excludedHospitalIds(HospitalDispatchAttempt attempt) {
+        if (attempt.getTriggerType() == HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL) {
+            return new HashSet<>(offerRepository.findContactedHospitalProfileIds(
+                    attempt.getTransportRequest().getId()
+            ));
+        }
+        return new HashSet<>(offerRepository.findWithdrawnHospitalProfileIds(
+                attempt.getTransportRequest().getId()
+        ));
+    }
+
+    private List<HospitalCandidate> candidatesFor(HospitalDispatchAttempt attempt) {
+        Set<Long> excludedHospitalIds = excludedHospitalIds(attempt);
         return hospitalProfileRepository.findEligibleForNewRequests().stream()
+                .filter(profile -> !excludedHospitalIds.contains(profile.getId()))
                 .map(profile -> new HospitalCandidate(
                         profile,
                         distanceCalculator.meters(
-                                transportRequest.getOriginLatitude(),
-                                transportRequest.getOriginLongitude(),
+                                attempt.getSearchOriginLatitude(),
+                                attempt.getSearchOriginLongitude(),
                                 profile.getLatitude(),
                                 profile.getLongitude()
                         )

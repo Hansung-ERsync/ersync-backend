@@ -4,5 +4,6 @@ package com.hansungteam.ersync.hospital.search.domain;
 public enum HospitalDispatchAttemptStatus {
     SEARCHING,
     STOPPED_ON_ACCEPTANCE,
+    STOPPED_ON_DESTINATION,
     EXHAUSTED
 }

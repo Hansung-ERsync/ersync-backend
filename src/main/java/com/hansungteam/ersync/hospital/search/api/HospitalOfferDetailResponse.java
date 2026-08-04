@@ -1,6 +1,7 @@
 package com.hansungteam.ersync.hospital.search.api;
 
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
@@ -17,6 +18,8 @@ public record HospitalOfferDetailResponse(
         int dispatchAttemptNumber,
         TransportRequestStatus transportRequestStatus,
         HospitalOfferStatus offerStatus,
+        boolean currentDestination,
+        boolean canWithdraw,
         Patient patient,
         Incident incident,
         PreKtas preKtas,
@@ -28,7 +31,10 @@ public record HospitalOfferDetailResponse(
         Timing timing,
         HospitalRejectionReason rejectionReason,
         String rejectionDetail,
+        HospitalAcceptanceWithdrawalReason withdrawalReason,
+        String withdrawalDetail,
         Instant respondedAt,
+        Instant withdrawnAt,
         Instant serverNow
 ) {
 
