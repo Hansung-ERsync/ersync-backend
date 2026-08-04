@@ -119,11 +119,14 @@ class AccountSignupConcurrencyIntegrationTest {
         try {
             accountSignupService.signupParamedic(new ParamedicSignupRequest(
                     code,
+                    "동시가입 대원",
                     loginId,
                     "safe-password",
                     "010-1234-5678",
                     true,
-                    "CONTACT_SHARING_DEV_1.0"
+                    "COLLECTION_USE_DEV_1.0",
+                    true,
+                    "HOSPITAL_PROVISION_DEV_1.0"
             ));
             return AttemptResult.succeeded();
         } catch (CustomException ex) {

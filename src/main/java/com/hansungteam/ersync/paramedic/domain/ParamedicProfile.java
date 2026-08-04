@@ -43,6 +43,9 @@ public class ParamedicProfile {
     @JoinColumn(name = "organization_id", nullable = false)
     private Organization organization;
 
+    @Column(name = "display_name", nullable = false, length = 50)
+    private String displayName;
+
     @Column(nullable = false, length = 30)
     private String contact;
 
@@ -52,20 +55,36 @@ public class ParamedicProfile {
     @Column(name = "updated_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant updatedAt;
 
-    private ParamedicProfile(UserAccount account, Organization organization, String contact) {
+    private ParamedicProfile(
+            UserAccount account,
+            Organization organization,
+            String displayName,
+            String contact
+    ) {
         this.publicId = UUID.randomUUID().toString();
         this.account = account;
         this.organization = organization;
+        this.displayName = displayName;
         this.contact = contact;
     }
 
-    /** 가입한 구급대원 계정의 연락처 프로필을 생성합니다. */
+    /** 가입한 구급대원 계정의 화면 표시 이름과 연락처 프로필을 생성합니다. */
+    public static ParamedicProfile create(
+            UserAccount account,
+            Organization organization,
+            String displayName,
+            String contact
+    ) {
+        return new ParamedicProfile(account, organization, displayName, contact);
+    }
+
+    /** 기존 테스트·Dev 계정은 로그인 ID를 표시 이름으로 사용합니다. */
     public static ParamedicProfile create(
             UserAccount account,
             Organization organization,
             String contact
     ) {
-        return new ParamedicProfile(account, organization, contact);
+        return create(account, organization, account.getLoginId(), contact);
     }
 
     @PrePersist

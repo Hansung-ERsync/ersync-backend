@@ -14,6 +14,7 @@ import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository
 import com.hansungteam.ersync.paramedic.domain.ParamedicProfile;
 import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
 import com.hansungteam.ersync.privacy.domain.ContactSharingConsent;
+import com.hansungteam.ersync.privacy.domain.ConsentType;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import com.hansungteam.ersync.transport.infrastructure.ConsciousnessAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.CurrentPatientSnapshotRepository;
@@ -133,6 +134,39 @@ class TransportRequestIntegrationTest {
                 .andExpect(jsonPath("$.code").value("USER_005"));
 
         assertThat(transportRequestRepository.count()).isZero();
+    }
+
+    @Test
+    void currentHospitalProvisionConsentAllowsTransportRequest() throws Exception {
+        Organization organization = organizationRepository.save(Organization.create(
+                "newconsentmedic 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        UserAccount paramedic = userAccountRepository.save(UserAccount.createMember(
+                organization,
+                "newconsentmedic",
+                "encoded-password",
+                UserRole.PARAMEDIC
+        ));
+        paramedicProfileRepository.save(ParamedicProfile.create(
+                paramedic,
+                organization,
+                "신규동의",
+                "010-0000-0002"
+        ));
+        consentRepository.save(ContactSharingConsent.record(
+                paramedic,
+                ConsentType.HOSPITAL_PROVISION,
+                "HOSPITAL_PROVISION_DEV_1.0",
+                Instant.parse("2026-08-04T09:00:00Z")
+        ));
+
+        mockMvc.perform(post("/api/v1/transport-requests")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
+                        .header("Idempotency-Key", "request-key-new-consent")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(ValidTransportRequestFixtures.request())))
+                .andExpect(status().isCreated());
     }
 
     @Test

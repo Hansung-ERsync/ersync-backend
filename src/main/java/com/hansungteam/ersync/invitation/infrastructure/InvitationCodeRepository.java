@@ -5,6 +5,7 @@ import com.hansungteam.ersync.invitation.domain.InvitationStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +19,10 @@ public interface InvitationCodeRepository
         extends JpaRepository<InvitationCode, Long>, JpaSpecificationExecutor<InvitationCode> {
 
     Optional<InvitationCode> findByPublicId(String publicId);
+
+    @EntityGraph(attributePaths = "organization")
+    @Query("select invitation from InvitationCode invitation where invitation.codeDigest = :digest")
+    Optional<InvitationCode> findByCodeDigest(@Param("digest") byte[] digest);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select invitation from InvitationCode invitation where invitation.publicId = :publicId")

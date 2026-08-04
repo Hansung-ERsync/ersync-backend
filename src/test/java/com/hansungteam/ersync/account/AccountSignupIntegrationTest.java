@@ -17,12 +17,14 @@ import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
 import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
+import com.hansungteam.ersync.privacy.domain.ConsentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,8 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -41,6 +45,9 @@ class AccountSignupIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private OrganizationRepository organizationRepository;
@@ -155,11 +162,14 @@ class AccountSignupIntegrationTest {
                         .content("""
                                 {
                                   "invitationCode": "%s",
+                                  "displayName": "  김민준  ",
                                   "loginId": "medic01",
                                   "password": "safe-password",
                                   "contact": "010-1234-5678",
-                                  "contactSharingConsentAccepted": true,
-                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
+                                  "collectionUseConsentAccepted": true,
+                                  "collectionUseConsentVersion": "COLLECTION_USE_DEV_1.0",
+                                  "hospitalProvisionConsentAccepted": true,
+                                  "hospitalProvisionConsentVersion": "HOSPITAL_PROVISION_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isCreated())
@@ -171,10 +181,17 @@ class AccountSignupIntegrationTest {
         var profile = paramedicProfileRepository.findByAccountPublicId(account.getPublicId()).orElseThrow();
         assertThat(account.getOrganization().getPublicId()).isEqualTo(emsUnit.getPublicId());
         assertThat(account.getRole()).isEqualTo(UserRole.PARAMEDIC);
+        assertThat(profile.getDisplayName()).isEqualTo("김민준");
         assertThat(profile.getContact()).isEqualTo("010-1234-5678");
-        assertThat(contactSharingConsentRepository.existsByAccountPublicIdAndPolicyVersion(
+        assertThat(contactSharingConsentRepository.existsByAccountPublicIdAndConsentTypeAndPolicyVersion(
                 account.getPublicId(),
-                "CONTACT_SHARING_DEV_1.0"
+                ConsentType.CONTACT_COLLECTION_USE,
+                "COLLECTION_USE_DEV_1.0"
+        )).isTrue();
+        assertThat(contactSharingConsentRepository.existsByAccountPublicIdAndConsentTypeAndPolicyVersion(
+                account.getPublicId(),
+                ConsentType.HOSPITAL_PROVISION,
+                "HOSPITAL_PROVISION_DEV_1.0"
         )).isTrue();
     }
 
@@ -191,11 +208,14 @@ class AccountSignupIntegrationTest {
                         .content("""
                                 {
                                   "invitationCode": "%s",
+                                  "displayName": "잘못된 아이디",
                                   "loginId": "Medic01",
                                   "password": "safe-password",
                                   "contact": "010-1234-5678",
-                                  "contactSharingConsentAccepted": true,
-                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
+                                  "collectionUseConsentAccepted": true,
+                                  "collectionUseConsentVersion": "COLLECTION_USE_DEV_1.0",
+                                  "hospitalProvisionConsentAccepted": true,
+                                  "hospitalProvisionConsentVersion": "HOSPITAL_PROVISION_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isBadRequest())
@@ -206,7 +226,7 @@ class AccountSignupIntegrationTest {
     }
 
     @Test
-    void contactSharingConsentIsRequiredBeforeInvitationIsConsumed() throws Exception {
+    void bothParamedicConsentsAreRequiredBeforeInvitationIsConsumed() throws Exception {
         Organization emsUnit = organizationRepository.save(Organization.create(
                 "도봉소방서 구급대",
                 OrganizationType.EMS_UNIT
@@ -218,11 +238,14 @@ class AccountSignupIntegrationTest {
                         .content("""
                                 {
                                   "invitationCode": "%s",
+                                  "displayName": "동의 실패",
                                   "loginId": "medic02",
                                   "password": "safe-password",
                                   "contact": "010-9999-8888",
-                                  "contactSharingConsentAccepted": false,
-                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
+                                  "collectionUseConsentAccepted": false,
+                                  "collectionUseConsentVersion": "COLLECTION_USE_DEV_1.0",
+                                  "hospitalProvisionConsentAccepted": true,
+                                  "hospitalProvisionConsentVersion": "HOSPITAL_PROVISION_DEV_1.0"
                                 }
                                 """.formatted(code)))
                 .andExpect(status().isBadRequest())
@@ -233,6 +256,93 @@ class AccountSignupIntegrationTest {
         assertThat(contactSharingConsentRepository.count()).isZero();
         assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
                 .isEqualTo(InvitationStatus.AVAILABLE);
+    }
+
+    @Test
+    void invalidDisplayNameDoesNotConsumeInvitation() throws Exception {
+        Organization emsUnit = organizationRepository.save(Organization.create(
+                "이름 검증 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        String code = issue(emsUnit, UserRole.PARAMEDIC);
+
+        mockMvc.perform(post("/api/v1/auth/signups/paramedic")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "invitationCode": "%s",
+                                  "displayName": " 한 ",
+                                  "loginId": "medic03",
+                                  "password": "safe-password",
+                                  "contact": "010-1111-2222",
+                                  "collectionUseConsentAccepted": true,
+                                  "collectionUseConsentVersion": "COLLECTION_USE_DEV_1.0",
+                                  "hospitalProvisionConsentAccepted": true,
+                                  "hospitalProvisionConsentVersion": "HOSPITAL_PROVISION_DEV_1.0"
+                                }
+                                """.formatted(code)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        assertThat(userAccountRepository.existsByLoginId("medic03")).isFalse();
+        assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
+                .isEqualTo(InvitationStatus.AVAILABLE);
+    }
+
+    @Test
+    void twoStepSignupLoginAndProfileRestoreWorkAsOneFlow() throws Exception {
+        Organization emsUnit = organizationRepository.save(Organization.create(
+                "통합 흐름 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        String code = issue(emsUnit, UserRole.PARAMEDIC);
+
+        mockMvc.perform(post("/api/v1/auth/invitations/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"invitationCode\":\"" + code + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.organizationName").value(emsUnit.getName()))
+                .andExpect(jsonPath("$.role").value("PARAMEDIC"));
+
+        mockMvc.perform(post("/api/v1/auth/signups/paramedic")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "invitationCode": "%s",
+                                  "displayName": "통합 대원",
+                                  "loginId": "flowmedic",
+                                  "password": "safe-password",
+                                  "contact": "010-2222-3333",
+                                  "collectionUseConsentAccepted": true,
+                                  "collectionUseConsentVersion": "COLLECTION_USE_DEV_1.0",
+                                  "hospitalProvisionConsentAccepted": true,
+                                  "hospitalProvisionConsentVersion": "HOSPITAL_PROVISION_DEV_1.0"
+                                }
+                                """.formatted(code)))
+                .andExpect(status().isCreated());
+
+        String loginResponse = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "flowmedic",
+                                  "password": "safe-password"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String accessToken = objectMapper.readTree(loginResponse).get("accessToken").asText();
+
+        mockMvc.perform(get("/api/v1/paramedics/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loginId").value("flowmedic"))
+                .andExpect(jsonPath("$.displayName").value("통합 대원"))
+                .andExpect(jsonPath("$.organizationName").value(emsUnit.getName()))
+                .andExpect(jsonPath("$.callbackContact").value("010-2222-3333"))
+                .andExpect(jsonPath("$.privacyConsent.legacyCombined").value(false));
     }
 
     private String issue(Organization organization, UserRole role) {

@@ -8,10 +8,13 @@ import jakarta.validation.constraints.Size;
 /** 구급대원 개인 계정 가입 요청입니다. */
 public record ParamedicSignupRequest(
         @NotBlank String invitationCode,
+        @NotBlank @Size(max = 50) String displayName,
         @NotBlank @Pattern(regexp = "[a-z0-9]{4,30}") String loginId,
         @NotBlank @Size(min = 8, max = 64) String password,
         @NotBlank @Size(max = 30) String contact,
-        @AssertTrue boolean contactSharingConsentAccepted,
-        @NotBlank @Size(max = 50) String contactSharingConsentVersion
+        @AssertTrue boolean collectionUseConsentAccepted,
+        @NotBlank @Size(max = 50) String collectionUseConsentVersion,
+        @AssertTrue boolean hospitalProvisionConsentAccepted,
+        @NotBlank @Size(max = 50) String hospitalProvisionConsentVersion
 ) {
 }

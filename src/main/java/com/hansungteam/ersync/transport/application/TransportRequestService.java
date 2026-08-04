@@ -15,6 +15,7 @@ import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.paramedic.domain.ParamedicProfile;
 import com.hansungteam.ersync.paramedic.infrastructure.ParamedicProfileRepository;
 import com.hansungteam.ersync.privacy.application.ContactSharingConsentPolicy;
+import com.hansungteam.ersync.privacy.domain.ConsentType;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestResponse;
@@ -163,11 +164,19 @@ public class TransportRequestService {
         ParamedicProfile profile = paramedicProfileRepository.findByAccountPublicId(account.getPublicId())
                 .filter(found -> found.getOrganization().getPublicId().equals(account.getOrganization().getPublicId()))
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_CONTACT_OR_CONSENT_REQUIRED));
-        boolean consentExists = contactSharingConsentRepository.existsByAccountPublicIdAndPolicyVersion(
+        boolean currentProvisionConsentExists = contactSharingConsentRepository
+                .existsByAccountPublicIdAndConsentTypeAndPolicyVersion(
                 account.getPublicId(),
-                contactSharingConsentPolicy.activePolicyVersion()
+                ConsentType.HOSPITAL_PROVISION,
+                contactSharingConsentPolicy.hospitalProvisionPolicyVersion()
         );
-        if (!consentExists) {
+        boolean combinedConsentExists = contactSharingConsentRepository
+                .existsByAccountPublicIdAndConsentTypeAndPolicyVersion(
+                        account.getPublicId(),
+                        ConsentType.CONTACT_COLLECTION_AND_PROVISION,
+                        contactSharingConsentPolicy.activePolicyVersion()
+                );
+        if (!currentProvisionConsentExists && !combinedConsentExists) {
             throw new CustomException(ErrorCode.USER_CONTACT_OR_CONSENT_REQUIRED);
         }
         return profile;
