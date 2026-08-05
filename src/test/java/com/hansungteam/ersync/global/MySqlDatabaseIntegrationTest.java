@@ -4,6 +4,11 @@ import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
 import com.hansungteam.ersync.global.security.AuthenticatedAccount;
 import com.hansungteam.ersync.global.security.UserRole;
+import com.hansungteam.ersync.hospital.api.HospitalReceivingStatusResponse;
+import com.hansungteam.ersync.hospital.application.HospitalReceivingService;
+import com.hansungteam.ersync.hospital.domain.HospitalProfile;
+import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
+import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
@@ -27,7 +32,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -56,6 +68,8 @@ class MySqlDatabaseIntegrationTest {
 
     @Autowired private OrganizationRepository organizationRepository;
     @Autowired private UserAccountRepository userAccountRepository;
+    @Autowired private HospitalProfileRepository hospitalProfileRepository;
+    @Autowired private HospitalReceivingService hospitalReceivingService;
     @Autowired private ParamedicProfileRepository paramedicProfileRepository;
     @Autowired private ContactSharingConsentRepository consentRepository;
     @Autowired private TransportRequestRepository transportRequestRepository;
@@ -181,6 +195,60 @@ class MySqlDatabaseIntegrationTest {
                       WHERE request.id = snapshot.transport_request_id
                   )
                 """, Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentHospitalReceivingChangesAreSerializedOnMySql84() throws Exception {
+        Organization organization = organizationRepository.save(Organization.create(
+                "MySQL 동시 수신 병원",
+                OrganizationType.HOSPITAL
+        ));
+        UserAccount account = userAccountRepository.save(UserAccount.createMember(
+                organization,
+                "mysqlhospital",
+                "encoded-password",
+                UserRole.HOSPITAL_STAFF
+        ));
+        hospitalProfileRepository.save(HospitalProfile.create(
+                organization,
+                account,
+                "서울특별시 성북구",
+                new BigDecimal("37.5821000"),
+                new BigDecimal("127.0105000"),
+                "02-1234-5678"
+        ));
+        AuthenticatedAccount authenticated = new AuthenticatedAccount(
+                account.getPublicId(),
+                organization.getPublicId(),
+                UserRole.HOSPITAL_STAFF
+        );
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<HospitalReceivingStatusResponse> onFuture = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return hospitalReceivingService.change(authenticated, ReceivingStatus.ON);
+            });
+            Future<HospitalReceivingStatusResponse> offFuture = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return hospitalReceivingService.change(authenticated, ReceivingStatus.OFF);
+            });
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(List.of(
+                    onFuture.get(10, TimeUnit.SECONDS).status(),
+                    offFuture.get(10, TimeUnit.SECONDS).status()
+            )).containsExactlyInAnyOrder(ReceivingStatus.ON, ReceivingStatus.OFF);
+        }
+
+        assertThat(hospitalProfileRepository.findByAccountPublicId(account.getPublicId()))
+                .get()
+                .extracting(HospitalProfile::getReceivingStatus)
+                .isIn(ReceivingStatus.ON, ReceivingStatus.OFF);
     }
 
     private static String jdbcUrl() {
