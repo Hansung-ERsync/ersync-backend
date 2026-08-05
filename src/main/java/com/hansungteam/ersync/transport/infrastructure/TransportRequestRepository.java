@@ -1,18 +1,18 @@
 package com.hansungteam.ersync.transport.infrastructure;
 
 import com.hansungteam.ersync.transport.domain.TransportRequest;
+import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 
-import jakarta.persistence.LockModeType;
-
-import java.util.Optional;
 import java.util.Collection;
+import java.util.Optional;
 
 /** 이송 요청 영속성 접근점입니다. */
 public interface TransportRequestRepository extends JpaRepository<TransportRequest, Long> {
@@ -27,6 +27,13 @@ public interface TransportRequestRepository extends JpaRepository<TransportReque
 
     @EntityGraph(attributePaths = {"ownerAccount", "organization", "currentDestinationOffer"})
     Optional<TransportRequest> findByPublicIdAndOwnerAccountPublicId(String publicId, String ownerAccountId);
+
+    @EntityGraph(attributePaths = {"ownerAccount", "organization"})
+    Optional<TransportRequest> findByPublicIdAndOwnerAccountPublicIdAndStatusIn(
+            String publicId,
+            String ownerAccountId,
+            Collection<TransportRequestStatus> statuses
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"ownerAccount", "organization", "currentDestinationOffer"})

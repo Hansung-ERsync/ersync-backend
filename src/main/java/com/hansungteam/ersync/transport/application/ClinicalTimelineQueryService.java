@@ -19,7 +19,6 @@ import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
 import com.hansungteam.ersync.transport.domain.PreKtasAssessment;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
-import com.hansungteam.ersync.transport.domain.TreatmentDetails;
 import com.hansungteam.ersync.transport.domain.TreatmentEvent;
 import com.hansungteam.ersync.transport.domain.VitalSignSet;
 import com.hansungteam.ersync.transport.infrastructure.ClinicalTimelineRepository;
@@ -57,6 +56,7 @@ public class ClinicalTimelineQueryService {
     private final ConsciousnessAssessmentRepository consciousnessAssessmentRepository;
     private final PreKtasAssessmentRepository preKtasAssessmentRepository;
     private final TreatmentEventRepository treatmentEventRepository;
+    private final ClinicalSnapshotResponseMapper snapshotResponseMapper;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -140,7 +140,8 @@ public class ClinicalTimelineQueryService {
         }).toList();
         int totalPages = total == 0 ? 0 : (int) ((total + size - 1) / size);
         return new ClinicalTimelineResponse(
-                request.getPublicId(), latest(snapshot), items, page, size, total, totalPages, clock.instant()
+                request.getPublicId(), snapshotResponseMapper.latest(snapshot),
+                items, page, size, total, totalPages, clock.instant()
         );
     }
 
@@ -175,21 +176,11 @@ public class ClinicalTimelineQueryService {
         return account;
     }
 
-    private ClinicalTimelineResponse.LatestSnapshot latest(CurrentPatientSnapshot snapshot) {
-        return new ClinicalTimelineResponse.LatestSnapshot(
-                preKtas(snapshot.getLatestPreKtasAssessment()),
-                consciousness(snapshot.getLatestConsciousnessAssessment()),
-                vitalSigns(snapshot.getLatestVitalSignSet()),
-                snapshot.getCurrentTreatments().stream().map(this::treatment).toList(),
-                snapshot.getLastClinicalUpdateAt()
-        );
-    }
-
     private ClinicalTimelineResponse.Item item(VitalSignSet record, ClinicalTimelineRow row) {
         requireLoaded(record);
         return new ClinicalTimelineResponse.Item(
                 row.recordType(), row.recordPublicId(), row.clinicalAt(), record.getEnteredAt(),
-                row.serverReceivedAt(), null, null, vitalSigns(record), null
+                row.serverReceivedAt(), null, null, snapshotResponseMapper.vitalSigns(record), null
         );
     }
 
@@ -197,7 +188,7 @@ public class ClinicalTimelineQueryService {
         requireLoaded(record);
         return new ClinicalTimelineResponse.Item(
                 row.recordType(), row.recordPublicId(), row.clinicalAt(), record.getEnteredAt(),
-                row.serverReceivedAt(), null, consciousness(record), null, null
+                row.serverReceivedAt(), null, snapshotResponseMapper.consciousness(record), null, null
         );
     }
 
@@ -205,7 +196,7 @@ public class ClinicalTimelineQueryService {
         requireLoaded(record);
         return new ClinicalTimelineResponse.Item(
                 row.recordType(), row.recordPublicId(), row.clinicalAt(), record.getEnteredAt(),
-                row.serverReceivedAt(), preKtas(record), null, null, null
+                row.serverReceivedAt(), snapshotResponseMapper.preKtas(record), null, null, null
         );
     }
 
@@ -213,53 +204,7 @@ public class ClinicalTimelineQueryService {
         requireLoaded(record);
         return new ClinicalTimelineResponse.Item(
                 row.recordType(), row.recordPublicId(), row.clinicalAt(), record.getEnteredAt(),
-                row.serverReceivedAt(), null, null, null, treatment(record)
-        );
-    }
-
-    private ClinicalTimelineResponse.PreKtas preKtas(PreKtasAssessment record) {
-        return new ClinicalTimelineResponse.PreKtas(
-                record.getClassificationStatus().name(), record.getLevel(), enumName(record.getExceptionReason()),
-                record.getExceptionDetail(), record.getAssessedAt(), record.getStandardVersion()
-        );
-    }
-
-    private ClinicalTimelineResponse.Consciousness consciousness(ConsciousnessAssessment record) {
-        return new ClinicalTimelineResponse.Consciousness(
-                record.getAvpu().name(), enumName(record.getUnassessableReason()),
-                record.getUnassessableDetail(), record.getObservedAt()
-        );
-    }
-
-    private ClinicalTimelineResponse.VitalSigns vitalSigns(VitalSignSet record) {
-        return new ClinicalTimelineResponse.VitalSigns(
-                record.getMeasuredAt(),
-                record.getMeasurements().stream().map(measurement -> new ClinicalTimelineResponse.VitalSign(
-                        measurement.getMeasurementType().name(), measurement.getState().name(),
-                        measurement.getPrimaryValue(), measurement.getSecondaryValue(),
-                        enumName(measurement.getUnavailableReason()), measurement.getUnavailableDetail()
-                )).toList()
-        );
-    }
-
-    private ClinicalTimelineResponse.Treatment treatment(TreatmentEvent record) {
-        return new ClinicalTimelineResponse.Treatment(
-                record.getTreatmentType().name(), enumName(record.getAttemptResult()), record.getPerformedAt(),
-                details(record.getDetails())
-        );
-    }
-
-    private ClinicalTimelineResponse.TreatmentDetails details(TreatmentDetails details) {
-        if (details == null) {
-            return null;
-        }
-        return new ClinicalTimelineResponse.TreatmentDetails(
-                details.getMethod(), details.getDevice(), details.getFlowRateLpm(), details.getStartedAt(),
-                details.getSuccess(), details.getCurrentStatus(), details.getRosc(), details.getRoscAt(),
-                details.getShockCount(), details.getFluidName(), details.getAmountMl(),
-                details.getMedicationName(), details.getDose(), details.getRoute(), details.getSite(),
-                details.getTourniquetUsed(), details.getTourniquetAppliedAt(), details.getLeadType(),
-                details.getFindings(), details.getTransmitted(), details.getBirthAt(), details.getDetail()
+                row.serverReceivedAt(), null, null, null, snapshotResponseMapper.treatment(record)
         );
     }
 
@@ -271,9 +216,5 @@ public class ClinicalTimelineQueryService {
         if (value == null) {
             throw new CustomException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR);
         }
-    }
-
-    private String enumName(Enum<?> value) {
-        return value == null ? null : value.name();
     }
 }
