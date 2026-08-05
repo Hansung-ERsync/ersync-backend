@@ -2,21 +2,22 @@ package com.hansungteam.ersync.transport.api;
 
 import com.hansungteam.ersync.global.security.CurrentAccountProvider;
 import com.hansungteam.ersync.transport.application.TransportRequestCreationResult;
-import com.hansungteam.ersync.transport.application.TransportRequestService;
+import com.hansungteam.ersync.transport.application.TransportRequestDetailQueryService;
 import com.hansungteam.ersync.transport.application.TransportLifecycleService;
 import com.hansungteam.ersync.transport.application.TransportRequestQueryService;
+import com.hansungteam.ersync.transport.application.TransportRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
@@ -29,6 +30,7 @@ import java.net.URI;
 public class TransportRequestController {
 
     private final TransportRequestService transportRequestService;
+    private final TransportRequestDetailQueryService detailQueryService;
     private final TransportLifecycleService lifecycleService;
     private final TransportRequestQueryService queryService;
     private final CurrentAccountProvider currentAccountProvider;
@@ -70,6 +72,11 @@ public class TransportRequestController {
         return lifecycleService.requestHandoff(
                 currentAccountProvider.require(), requestId, idempotencyKey
         );
+    }
+
+    @GetMapping("/{requestId}")
+    public TransportRequestDetailResponse detail(@PathVariable String requestId) {
+        return detailQueryService.detail(currentAccountProvider.require(), requestId);
     }
 
     @GetMapping
