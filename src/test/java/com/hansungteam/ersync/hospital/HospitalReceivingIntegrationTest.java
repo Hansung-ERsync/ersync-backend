@@ -78,7 +78,7 @@ class HospitalReceivingIntegrationTest {
                 new BigDecimal("127.0105000"),
                 "02-1234-5678"
         ));
-        String accessToken = login("hospitalon");
+        String accessToken = login("hospitalon", UserRole.HOSPITAL_STAFF);
 
         mockMvc.perform(put("/api/v1/hospitals/me/receiving-status")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
@@ -111,7 +111,7 @@ class HospitalReceivingIntegrationTest {
                 passwordEncoder.encode("safe-password"),
                 UserRole.PARAMEDIC
         ));
-        String accessToken = login("medicstatus");
+        String accessToken = login("medicstatus", UserRole.PARAMEDIC);
 
         mockMvc.perform(put("/api/v1/hospitals/me/receiving-status")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
@@ -125,15 +125,16 @@ class HospitalReceivingIntegrationTest {
                 .andExpect(jsonPath("$.code").value("AUTH_003"));
     }
 
-    private String login(String loginId) throws Exception {
+    private String login(String loginId, UserRole role) throws Exception {
         String response = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "loginId": "%s",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "role": "%s"
                                 }
-                                """.formatted(loginId)))
+                                """.formatted(loginId, role)))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

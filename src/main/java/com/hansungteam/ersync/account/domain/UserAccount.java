@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -24,7 +25,13 @@ import java.util.UUID;
 
 /** 로그인 자격정보와 서버 권한 범위를 보관하는 사용자 계정입니다. */
 @Entity
-@Table(name = "user_accounts")
+@Table(
+        name = "user_accounts",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_user_accounts_login_id_role",
+                columnNames = {"login_id", "role"}
+        )
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserAccount {
@@ -40,7 +47,7 @@ public class UserAccount {
     @JoinColumn(name = "organization_id")
     private Organization organization;
 
-    @Column(name = "login_id", nullable = false, unique = true, length = 30)
+    @Column(name = "login_id", nullable = false, length = 30)
     private String loginId;
 
     @Column(name = "password_hash", nullable = false, length = 255)

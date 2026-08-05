@@ -80,7 +80,11 @@ public class AccountSignupService {
             throw new CustomException(ErrorCode.USER_HOSPITAL_ACCOUNT_ALREADY_EXISTS);
         }
 
-        String loginId = validateCredentials(request.loginId(), request.password());
+        String loginId = validateCredentials(
+                request.loginId(),
+                request.password(),
+                UserRole.HOSPITAL_STAFF
+        );
         UserAccount account = saveAccount(organization, loginId, request.password(), UserRole.HOSPITAL_STAFF);
         HospitalProfile profile;
         try {
@@ -122,7 +126,11 @@ public class AccountSignupService {
                 UserRole.PARAMEDIC,
                 OrganizationType.EMS_UNIT
         );
-        String loginId = validateCredentials(request.loginId(), request.password());
+        String loginId = validateCredentials(
+                request.loginId(),
+                request.password(),
+                UserRole.PARAMEDIC
+        );
         UserAccount account = saveAccount(
                 invitation.getOrganization(),
                 loginId,
@@ -172,10 +180,14 @@ public class AccountSignupService {
         return invitation;
     }
 
-    private String validateCredentials(String requestedLoginId, String password) {
+    private String validateCredentials(
+            String requestedLoginId,
+            String password,
+            UserRole role
+    ) {
         String loginId = AccountCredentialPolicy.normalizeAndValidateLoginId(requestedLoginId);
         AccountCredentialPolicy.validatePassword(password);
-        if (userAccountRepository.existsByLoginId(loginId)) {
+        if (userAccountRepository.existsByLoginIdAndRole(loginId, role)) {
             throw new CustomException(ErrorCode.USER_LOGIN_ID_DUPLICATE);
         }
         return loginId;

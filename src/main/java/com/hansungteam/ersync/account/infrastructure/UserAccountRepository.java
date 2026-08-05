@@ -16,7 +16,7 @@ import java.util.Optional;
 public interface UserAccountRepository extends JpaRepository<UserAccount, Long> {
 
     @EntityGraph(attributePaths = "organization")
-    Optional<UserAccount> findByLoginId(String loginId);
+    Optional<UserAccount> findByLoginIdAndRole(String loginId, UserRole role);
 
     @EntityGraph(attributePaths = "organization")
     Optional<UserAccount> findByPublicId(String publicId);
@@ -26,7 +26,7 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     @Query("select account from UserAccount account where account.publicId = :publicId")
     Optional<UserAccount> findLockedByPublicId(@Param("publicId") String publicId);
 
-    boolean existsByLoginId(String loginId);
+    boolean existsByLoginIdAndRole(String loginId, UserRole role);
 
     boolean existsByRole(UserRole role);
 

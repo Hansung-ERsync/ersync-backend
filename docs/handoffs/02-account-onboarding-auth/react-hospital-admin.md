@@ -10,6 +10,10 @@ Hospital Impact: YES
 Admin Impact: YES
 ```
 
+> 병원·관리자 로그인 요청과 로그인 아이디 고유성은 11번 역할별 로그인 아이디
+> 문서가 최신 기준입니다. 이 문서는 병원 회원가입, 조직·가입 코드 관리와 토큰
+> 갱신 계약을 참고할 때 사용합니다.
+
 ## 변경 요약
 
 - 새로 가능해진 병원 동작: 가입 코드로 병원 공용 계정·응급실 프로필 생성,
@@ -232,7 +236,7 @@ Admin Impact: YES
 |---|---|---:|---|
 | `invitationCode` | string | YES | 미사용·미만료 병원 코드 |
 | `organizationName` | string | YES | 코드에 연결된 조직명과 일치 |
-| `loginId` | string | YES | 소문자 영문·숫자 4~30자, 전역 고유 |
+| `loginId` | string | YES | 소문자 영문·숫자 4~30자, 같은 `HOSPITAL_STAFF` 역할에서 고유 |
 | `password` | string | YES | 8~64자 |
 | `address` | string | YES | 최대 255자 |
 | `latitude` | number | YES | -90~90 |
@@ -259,7 +263,7 @@ Admin Impact: YES
 | `INVITATION_002` | 409 | 코드 만료 | 새 코드 요청 |
 | `INVITATION_003` | 409 | 코드 사용 완료 | 로그인 또는 관리자 확인 |
 | `INVITATION_004` | 409 | 코드 폐기 완료 | 새 코드 요청 |
-| `USER_003` | 409 | 로그인 ID 중복 | 다른 ID 입력 |
+| `USER_003` | 409 | 같은 `HOSPITAL_STAFF` 역할의 로그인 ID 중복 | 다른 ID 입력 |
 | `USER_004` | 409 | 해당 병원 공용 계정이 이미 존재 | 기존 공용 계정 사용 |
 
 ### `PUT /api/v1/hospitals/me/receiving-status`
@@ -309,9 +313,13 @@ Admin Impact: YES
 ```json
 {
   "loginId": "hansung1",
-  "password": "safe-password"
+  "password": "safe-password",
+  "role": "HOSPITAL_STAFF"
 }
 ```
+
+슈퍼 관리자 로그인은 같은 요청에서 `role: SUPER_ADMIN`을 고정합니다. 역할별
+전체 로그인 계약과 오류 처리는 11번 문서를 기준으로 합니다.
 
 ```json
 {

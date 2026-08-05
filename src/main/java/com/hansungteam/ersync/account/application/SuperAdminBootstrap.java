@@ -36,10 +36,6 @@ public class SuperAdminBootstrap implements ApplicationRunner {
 
         String loginId = AccountCredentialPolicy.normalizeAndValidateLoginId(configuredLoginId);
         AccountCredentialPolicy.validatePassword(configuredPassword);
-        if (userAccountRepository.existsByLoginId(loginId)) {
-            throw new IllegalStateException("Configured super admin login ID is already used");
-        }
-
         userAccountRepository.save(UserAccount.createSuperAdmin(
                 loginId,
                 passwordEncoder.encode(configuredPassword)
