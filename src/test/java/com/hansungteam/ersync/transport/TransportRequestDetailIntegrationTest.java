@@ -70,12 +70,15 @@ class TransportRequestDetailIntegrationTest {
     void ownerRestoresInitialPatientIncidentAndClinicalSnapshotWithoutSensitiveFields() throws Exception {
         UserAccount owner = createParamedic("detailowner");
         String requestId = createRequest(owner, "detail-request-key-001");
+        String ownerAuthorization = bearer(owner);
         long auditCount = auditRepository.count();
         long outboxCount = outboxRepository.count();
+        entityManager.flush();
+        entityManager.clear();
         Instant requestUpdatedAt = requestRepository.findByPublicId(requestId).orElseThrow().getUpdatedAt();
 
         String detailBody = mockMvc.perform(get("/api/v1/transport-requests/{requestId}", requestId)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                        .header(HttpHeaders.AUTHORIZATION, ownerAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.transportRequestId").value(requestId))
                 .andExpect(jsonPath("$.status").value("SEARCHING"))
@@ -109,7 +112,7 @@ class TransportRequestDetailIntegrationTest {
         String timelineBody = mockMvc.perform(get(
                                 "/api/v1/transport-requests/{requestId}/clinical-timeline", requestId
                         )
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                        .header(HttpHeaders.AUTHORIZATION, ownerAuthorization))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(detailBody).get("latestSnapshot"))
