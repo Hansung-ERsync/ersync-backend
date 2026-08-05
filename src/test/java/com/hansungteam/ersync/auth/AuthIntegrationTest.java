@@ -2,6 +2,10 @@ package com.hansungteam.ersync.auth;
 
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
+import com.hansungteam.ersync.global.security.UserRole;
+import com.hansungteam.ersync.organization.domain.Organization;
+import com.hansungteam.ersync.organization.domain.OrganizationType;
+import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +41,9 @@ class AuthIntegrationTest {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
+    private OrganizationRepository organizationRepository;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     private UserAccount admin;
@@ -56,7 +63,8 @@ class AuthIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "loginadmin",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "role": "SUPER_ADMIN"
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -114,7 +122,8 @@ class AuthIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "loginadmin",
-                                  "password": "wrong-password"
+                                  "password": "wrong-password",
+                                  "role": "SUPER_ADMIN"
                                 }
                                 """))
                 .andExpect(status().isUnauthorized())
@@ -125,7 +134,8 @@ class AuthIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "unknown1",
-                                  "password": "wrong-password"
+                                  "password": "wrong-password",
+                                  "role": "SUPER_ADMIN"
                                 }
                                 """))
                 .andExpect(status().isUnauthorized())
@@ -141,7 +151,8 @@ class AuthIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "loginadmin",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "role": "SUPER_ADMIN"
                                 }
                                 """))
                 .andExpect(status().isForbidden())
@@ -160,7 +171,8 @@ class AuthIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "loginadmin",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "role": "SUPER_ADMIN"
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -176,5 +188,97 @@ class AuthIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_002"));
+    }
+
+    @Test
+    void sameLoginIdAcrossRolesAuthenticatesOnlyTheRequestedRoleAccount() throws Exception {
+        Organization hospital = organizationRepository.save(Organization.create(
+                "동일 아이디 인증 병원",
+                OrganizationType.HOSPITAL
+        ));
+        UserAccount hospitalAccount = userAccountRepository.save(UserAccount.createMember(
+                hospital,
+                "loginadmin",
+                passwordEncoder.encode("hospital-password"),
+                UserRole.HOSPITAL_STAFF
+        ));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "loginadmin",
+                                  "password": "safe-password",
+                                  "role": "SUPER_ADMIN"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(admin.getPublicId()))
+                .andExpect(jsonPath("$.organizationId").doesNotExist())
+                .andExpect(jsonPath("$.role").value("SUPER_ADMIN"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "loginadmin",
+                                  "password": "hospital-password",
+                                  "role": "HOSPITAL_STAFF"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(hospitalAccount.getPublicId()))
+                .andExpect(jsonPath("$.organizationId").value(hospital.getPublicId()))
+                .andExpect(jsonPath("$.role").value("HOSPITAL_STAFF"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "loginadmin",
+                                  "password": "safe-password",
+                                  "role": "HOSPITAL_STAFF"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_004"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "loginadmin",
+                                  "password": "hospital-password",
+                                  "role": "PARAMEDIC"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_004"));
+    }
+
+    @Test
+    void roleIsRequiredAndUnknownRoleUsesStandardValidationError() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "loginadmin",
+                                  "password": "safe-password"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "loginId": "loginadmin",
+                                  "password": "safe-password",
+                                  "role": "UNKNOWN_ROLE"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
     }
 }

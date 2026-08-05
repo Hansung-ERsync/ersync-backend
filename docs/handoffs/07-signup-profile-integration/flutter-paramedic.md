@@ -8,9 +8,10 @@ Available After: MAIN_MERGE
 Breaking Change: YES
 ```
 
-> 이 문서는 구급대원 가입 코드 확인, 회원가입, 로그인, 토큰 갱신과 내 프로필
-> 조회의 최신 계약입니다. 기존 02·03 문서와 가입 요청 필드가 다르면 이 07
-> 문서를 우선합니다. React 병원 회원가입 계약은 변경되지 않았습니다.
+> 이 문서는 구급대원 가입 코드 확인, 회원가입, 토큰 갱신과 내 프로필 조회의
+> 최신 계약입니다. 로그인 요청은 11번 역할별 로그인 아이디 문서를 우선합니다.
+> 기존 02·03 문서와 가입 요청 필드가 다르면 이 07 문서를 우선합니다. React
+> 병원 회원가입 계약은 변경되지 않았습니다.
 
 ## 변경 요약
 
@@ -20,7 +21,8 @@ Breaking Change: YES
   - 전화번호 수집·이용 동의
   - 이송 요청을 받은 병원에 전화번호 제공 동의
 - 로그인·앱 재실행 후 이름·소속·로그인 ID·연락처·동의를 복구하는 내 프로필 API가 추가됐습니다.
-- 기존 로그인과 Access·Refresh Token 계약은 그대로입니다.
+- 로그인 요청에는 11번 문서의 `role: PARAMEDIC`을 사용하며 Access·Refresh
+  Token과 갱신 계약은 그대로입니다.
 
 ## 사용자 흐름
 
@@ -28,7 +30,7 @@ Breaking Change: YES
 |---:|---|---|---|
 | 1 | 가입 코드 한 번 입력 후 확인 | `POST /api/v1/auth/invitations/validate` | 소속·역할 표시, 코드 원문은 앱 메모리에만 보관 |
 | 2 | 이름·전화번호·ID·비밀번호 입력 후 동의 2개 승인 | `POST /api/v1/auth/signups/paramedic` | 개인 계정·프로필 생성, 가입 코드는 `USED` |
-| 3 | ID·비밀번호 로그인 | `POST /api/v1/auth/login` | 새 Access·Refresh Token 쌍 저장 |
+| 3 | ID·비밀번호와 앱 고정 `PARAMEDIC` 역할 로그인 | `POST /api/v1/auth/login` | 새 Access·Refresh Token 쌍 저장 |
 | 4 | 로그인 직후 또는 앱 상태 복구 | `GET /api/v1/paramedics/me` | 메인·설정 화면의 사용자 정보 구성 |
 | 5 | Access Token 만료 | `POST /api/v1/auth/tokens/refresh` 후 프로필 재조회 | 새 토큰 쌍과 서버 프로필로 복구 |
 
@@ -190,7 +192,7 @@ Breaking Change: YES
 | `INVITATION_002` | 409 | 가입 전에 만료됨 | 1단계로 이동, 새 코드 요청 |
 | `INVITATION_003` | 409 | 다른 가입이 먼저 코드를 사용함 | 1단계로 이동, 기존 로그인 또는 새 코드 요청 |
 | `INVITATION_004` | 409 | 가입 전에 폐기됨 | 1단계로 이동, 새 코드 요청 |
-| `USER_003` | 409 | 로그인 ID 중복 | 코드는 소비되지 않으므로 ID만 변경해 다시 제출 가능 |
+| `USER_003` | 409 | 같은 `PARAMEDIC` 역할의 로그인 ID 중복 | 코드는 소비되지 않으므로 ID만 변경해 다시 제출 가능 |
 
 ## API 3. 로그인
 
@@ -202,9 +204,12 @@ Breaking Change: YES
 ```json
 {
   "loginId": "paramedic01",
-  "password": "safe-password"
+  "password": "safe-password",
+  "role": "PARAMEDIC"
 }
 ```
+
+역할별 아이디 의미, 오류와 전환 방법은 11번 문서를 기준으로 합니다.
 
 성공 응답:
 

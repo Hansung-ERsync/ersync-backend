@@ -8,6 +8,9 @@ Available After: MAIN_MERGE
 Breaking Change: NO
 ```
 
+> 로그인 요청과 로그인 아이디 고유성은 11번 역할별 로그인 아이디 문서가 최신
+> 기준입니다. 이 문서는 회원가입, 토큰 의미와 갱신 계약을 참고할 때 사용합니다.
+
 ## 변경 요약
 
 - 새로 가능해진 구급대원 동작: 가입 코드로 개인 계정 생성, 로그인, Access
@@ -19,7 +22,7 @@ Breaking Change: NO
 | 순서 | 사용자·앱 동작 | API 호출 | 성공 후 상태 |
 |---:|---|---|---|
 | 1 | 전달받은 가입 코드와 개인 ID·비밀번호 입력 | `POST /api/v1/auth/signups/paramedic` | `PARAMEDIC` 계정 생성, 코드는 `USED` |
-| 2 | ID·비밀번호로 로그인 | `POST /api/v1/auth/login` | Access·Refresh Token과 조직 범위 저장 |
+| 2 | ID·비밀번호와 앱 고정 `PARAMEDIC` 역할로 로그인 | `POST /api/v1/auth/login` | Access·Refresh Token과 조직 범위 저장 |
 | 3 | 보호 API 호출 | `Authorization: Bearer {accessToken}` | 서버가 계정·역할·조직 검증 |
 | 4 | Access Token 만료 | `POST /api/v1/auth/tokens/refresh` | 새 토큰 쌍으로 교체, 이전 Refresh Token 폐기 |
 
@@ -78,7 +81,7 @@ Breaking Change: NO
 | 필드 | 타입 | 필수 | 제약 |
 |---|---|---:|---|
 | `invitationCode` | string | YES | 슈퍼 관리자가 전달한 미사용·미만료 구급대원 코드 |
-| `loginId` | string | YES | 소문자 영문·숫자 4~30자, 전체 시스템에서 고유 |
+| `loginId` | string | YES | 소문자 영문·숫자 4~30자, 같은 `PARAMEDIC` 역할에서 고유 |
 | `password` | string | YES | 8~64자 |
 
 성공 응답:
@@ -101,7 +104,7 @@ Breaking Change: NO
 | `INVITATION_002` | 409 | 만료된 코드 | 새 코드 요청 |
 | `INVITATION_003` | 409 | 이미 사용된 코드 | 로그인하거나 새 코드 요청 |
 | `INVITATION_004` | 409 | 폐기된 코드 | 새 코드 요청 |
-| `USER_003` | 409 | 로그인 ID 중복 | 다른 ID 입력 |
+| `USER_003` | 409 | 같은 `PARAMEDIC` 역할의 로그인 ID 중복 | 다른 ID 입력 |
 
 ### `POST /api/v1/auth/login`
 
@@ -114,7 +117,8 @@ Breaking Change: NO
 ```json
 {
   "loginId": "medic01",
-  "password": "safe-password"
+  "password": "safe-password",
+  "role": "PARAMEDIC"
 }
 ```
 

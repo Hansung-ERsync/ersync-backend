@@ -40,7 +40,7 @@ public class AuthService {
     @Transactional
     public AuthTokenResponse login(LoginRequest request) {
         String loginId = normalizedLoginIdOrInvalidCredentials(request.loginId());
-        UserAccount account = userAccountRepository.findByLoginId(loginId)
+        UserAccount account = userAccountRepository.findByLoginIdAndRole(loginId, request.role())
                 .orElseThrow(() -> new CustomException(ErrorCode.AUTH_CREDENTIALS_INVALID));
         if (!passwordEncoder.matches(request.password(), account.getPasswordHash())) {
             throw new CustomException(ErrorCode.AUTH_CREDENTIALS_INVALID);

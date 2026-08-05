@@ -82,8 +82,9 @@ class AccountSignupConcurrencyIntegrationTest {
         assertThat(results)
                 .filteredOn(result -> "INVITATION_003".equals(result.errorCode()))
                 .hasSize(1);
-        assertThat(userAccountRepository.existsByLoginId("concurrentmedic1")
-                ^ userAccountRepository.existsByLoginId("concurrentmedic2")).isTrue();
+        assertThat(userAccountRepository.existsByLoginIdAndRole("concurrentmedic1", UserRole.PARAMEDIC)
+                ^ userAccountRepository.existsByLoginIdAndRole("concurrentmedic2", UserRole.PARAMEDIC))
+                .isTrue();
         assertThat(invitationCodeRepository.findByPublicId(issued.invitation().invitationCodeId()).orElseThrow()
                 .getStatus()).isEqualTo(InvitationStatus.USED);
     }
@@ -111,8 +112,72 @@ class AccountSignupConcurrencyIntegrationTest {
                 .filteredOn(result -> "USER_004".equals(result.errorCode()))
                 .hasSize(1);
         assertThat(hospitalProfileRepository.existsByOrganizationPublicId(hospital.getPublicId())).isTrue();
-        assertThat(userAccountRepository.existsByLoginId("concurrenthospital1")
-                ^ userAccountRepository.existsByLoginId("concurrenthospital2")).isTrue();
+        assertThat(userAccountRepository.existsByLoginIdAndRole(
+                        "concurrenthospital1",
+                        UserRole.HOSPITAL_STAFF
+                ) ^ userAccountRepository.existsByLoginIdAndRole(
+                        "concurrenthospital2",
+                        UserRole.HOSPITAL_STAFF
+                )).isTrue();
+    }
+
+    @Test
+    void simultaneousParamedicSignupsWithSameLoginIdCreateOneAccount() throws Exception {
+        UserAccount admin = userAccountRepository.save(UserAccount.createSuperAdmin(
+                "concurrentadmin3",
+                "encoded-password"
+        ));
+        Organization firstEms = organizationRepository.save(Organization.create(
+                "동일 역할 구급대 1",
+                OrganizationType.EMS_UNIT
+        ));
+        Organization secondEms = organizationRepository.save(Organization.create(
+                "동일 역할 구급대 2",
+                OrganizationType.EMS_UNIT
+        ));
+        String firstCode = issueCode(admin, firstEms, UserRole.PARAMEDIC);
+        String secondCode = issueCode(admin, secondEms, UserRole.PARAMEDIC);
+
+        List<AttemptResult> results = runTogether(
+                () -> signupParamedic(firstCode, "samerolelogin"),
+                () -> signupParamedic(secondCode, "samerolelogin")
+        );
+
+        assertThat(results).filteredOn(AttemptResult::success).hasSize(1);
+        assertThat(results)
+                .filteredOn(result -> "USER_003".equals(result.errorCode()))
+                .hasSize(1);
+        assertThat(userAccountRepository.findByLoginIdAndRole("samerolelogin", UserRole.PARAMEDIC))
+                .isPresent();
+    }
+
+    @Test
+    void simultaneousDifferentRoleSignupsCanShareOneLoginId() throws Exception {
+        UserAccount admin = userAccountRepository.save(UserAccount.createSuperAdmin(
+                "concurrentadmin4",
+                "encoded-password"
+        ));
+        Organization ems = organizationRepository.save(Organization.create(
+                "교차 역할 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        Organization hospital = organizationRepository.save(Organization.create(
+                "교차 역할 병원",
+                OrganizationType.HOSPITAL
+        ));
+        String paramedicCode = issueCode(admin, ems, UserRole.PARAMEDIC);
+        String hospitalCode = issueCode(admin, hospital, UserRole.HOSPITAL_STAFF);
+
+        List<AttemptResult> results = runTogether(
+                () -> signupParamedic(paramedicCode, "crossrolelogin"),
+                () -> signupHospital(hospitalCode, "crossrolelogin", hospital.getName())
+        );
+
+        assertThat(results).allMatch(AttemptResult::success);
+        assertThat(userAccountRepository.findByLoginIdAndRole("crossrolelogin", UserRole.PARAMEDIC))
+                .isPresent();
+        assertThat(userAccountRepository.findByLoginIdAndRole("crossrolelogin", UserRole.HOSPITAL_STAFF))
+                .isPresent();
     }
 
     private AttemptResult signupParamedic(String code, String loginId) {
@@ -155,11 +220,19 @@ class AccountSignupConcurrencyIntegrationTest {
     }
 
     private String issueHospitalCode(UserAccount admin, Organization hospital) {
+        return issueCode(admin, hospital, UserRole.HOSPITAL_STAFF);
+    }
+
+    private String issueCode(
+            UserAccount admin,
+            Organization organization,
+            UserRole role
+    ) {
         return invitationService.issue(
                         admin.getPublicId(),
                         new IssueInvitationRequest(
-                                hospital.getPublicId(),
-                                UserRole.HOSPITAL_STAFF,
+                                organization.getPublicId(),
+                                role,
                                 InvitationExpiryOption.THREE_DAYS,
                                 null
                         )

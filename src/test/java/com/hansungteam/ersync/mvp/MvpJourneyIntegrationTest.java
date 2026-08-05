@@ -106,7 +106,8 @@ class MvpJourneyIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "mvpjourneymedic",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "role": "PARAMEDIC"
                                 }
                                 """))
                 .andExpect(status().isOk())

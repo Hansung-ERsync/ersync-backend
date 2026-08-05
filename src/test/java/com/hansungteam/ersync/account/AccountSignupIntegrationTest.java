@@ -2,6 +2,9 @@ package com.hansungteam.ersync.account;
 
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
+import com.hansungteam.ersync.account.api.HospitalSignupRequest;
+import com.hansungteam.ersync.account.api.ParamedicSignupRequest;
+import com.hansungteam.ersync.account.application.AccountSignupService;
 import com.hansungteam.ersync.audit.domain.AuditAction;
 import com.hansungteam.ersync.audit.infrastructure.AuditEventRepository;
 import com.hansungteam.ersync.global.security.UserRole;
@@ -76,6 +79,9 @@ class AccountSignupIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private AccountSignupService accountSignupService;
+
     private UserAccount admin;
 
     @BeforeEach
@@ -113,7 +119,10 @@ class AccountSignupIntegrationTest {
                 .andExpect(jsonPath("$.hospitalId").isNotEmpty())
                 .andExpect(jsonPath("$.receivingStatus").value("OFF"));
 
-        UserAccount account = userAccountRepository.findByLoginId("hansung1").orElseThrow();
+        UserAccount account = userAccountRepository.findByLoginIdAndRole(
+                "hansung1",
+                UserRole.HOSPITAL_STAFF
+        ).orElseThrow();
         var profile = hospitalProfileRepository.findByAccountPublicId(account.getPublicId()).orElseThrow();
         var invitation = invitationCodeRepository.findAll().getFirst();
 
@@ -177,7 +186,10 @@ class AccountSignupIntegrationTest {
                 .andExpect(jsonPath("$.organizationId").value(emsUnit.getPublicId()))
                 .andExpect(jsonPath("$.hospitalId").doesNotExist());
 
-        UserAccount account = userAccountRepository.findByLoginId("medic01").orElseThrow();
+        UserAccount account = userAccountRepository.findByLoginIdAndRole(
+                "medic01",
+                UserRole.PARAMEDIC
+        ).orElseThrow();
         var profile = paramedicProfileRepository.findByAccountPublicId(account.getPublicId()).orElseThrow();
         assertThat(account.getOrganization().getPublicId()).isEqualTo(emsUnit.getPublicId());
         assertThat(account.getRole()).isEqualTo(UserRole.PARAMEDIC);
@@ -193,6 +205,54 @@ class AccountSignupIntegrationTest {
                 ConsentType.HOSPITAL_PROVISION,
                 "HOSPITAL_PROVISION_DEV_1.0"
         )).isTrue();
+    }
+
+    @Test
+    void paramedicAndHospitalStaffCanShareOneLoginId() {
+        Organization emsUnit = organizationRepository.save(Organization.create(
+                "동일 아이디 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        Organization hospital = organizationRepository.save(Organization.create(
+                "동일 아이디 병원",
+                OrganizationType.HOSPITAL
+        ));
+        String paramedicCode = issue(emsUnit, UserRole.PARAMEDIC);
+        String hospitalCode = issue(hospital, UserRole.HOSPITAL_STAFF);
+
+        accountSignupService.signupParamedic(new ParamedicSignupRequest(
+                paramedicCode,
+                "동일 아이디 대원",
+                "sharedmember",
+                "paramedic-password",
+                "010-1234-5678",
+                true,
+                "COLLECTION_USE_DEV_1.0",
+                true,
+                "HOSPITAL_PROVISION_DEV_1.0"
+        ));
+        accountSignupService.signupHospital(new HospitalSignupRequest(
+                hospitalCode,
+                hospital.getName(),
+                "sharedmember",
+                "hospital-password",
+                "서울특별시 성북구",
+                new java.math.BigDecimal("37.5821000"),
+                new java.math.BigDecimal("127.0105000"),
+                "02-1234-5678",
+                true,
+                "CONTACT_SHARING_DEV_1.0"
+        ));
+
+        assertThat(userAccountRepository.findByLoginIdAndRole("sharedmember", UserRole.PARAMEDIC))
+                .get()
+                .extracting(UserAccount::getOrganization)
+                .isEqualTo(emsUnit);
+        assertThat(userAccountRepository.findByLoginIdAndRole("sharedmember", UserRole.HOSPITAL_STAFF))
+                .get()
+                .extracting(UserAccount::getOrganization)
+                .isEqualTo(hospital);
+        assertThat(userAccountRepository.count()).isEqualTo(3L);
     }
 
     @Test
@@ -251,7 +311,8 @@ class AccountSignupIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
 
-        assertThat(userAccountRepository.existsByLoginId("medic02")).isFalse();
+        assertThat(userAccountRepository.existsByLoginIdAndRole("medic02", UserRole.PARAMEDIC))
+                .isFalse();
         assertThat(paramedicProfileRepository.count()).isZero();
         assertThat(contactSharingConsentRepository.count()).isZero();
         assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
@@ -284,7 +345,8 @@ class AccountSignupIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_001"));
 
-        assertThat(userAccountRepository.existsByLoginId("medic03")).isFalse();
+        assertThat(userAccountRepository.existsByLoginIdAndRole("medic03", UserRole.PARAMEDIC))
+                .isFalse();
         assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
                 .isEqualTo(InvitationStatus.AVAILABLE);
     }
@@ -326,7 +388,8 @@ class AccountSignupIntegrationTest {
                         .content("""
                                 {
                                   "loginId": "flowmedic",
-                                  "password": "safe-password"
+                                  "password": "safe-password",
+                                  "role": "PARAMEDIC"
                                 }
                                 """))
                 .andExpect(status().isOk())
