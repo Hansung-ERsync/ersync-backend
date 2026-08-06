@@ -51,6 +51,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -86,7 +87,7 @@ class TransportDestinationServiceIntegrationTest {
     @Autowired private MockMvc mockMvc;
 
     @Test
-    void selectsChangesAndReplaysOneCurrentDestination() {
+    void selectsChangesAndReplaysOneCurrentDestination() throws Exception {
         UserAccount paramedic = createParamedic("destinationmedic");
         UserAccount hospitalOne = createHospital("destinationhospital1", "37.6021000");
         UserAccount hospitalTwo = createHospital("destinationhospital2", "37.6121000");
@@ -128,6 +129,41 @@ class TransportDestinationServiceIntegrationTest {
         assertThat(commandRepository.count()).isEqualTo(3);
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow()
                 .getCurrentDestinationOffer().getPublicId()).isEqualTo(offerTwo.getPublicId());
+
+        Long transportRequestId = requestRepository.findByPublicId(requestId).orElseThrow().getId();
+        var latestEffectiveDestinations = commandRepository.findLatestEffectiveDestinations(
+                Set.of(transportRequestId)
+        );
+        assertThat(latestEffectiveDestinations).singleElement().satisfies(latest -> {
+            assertThat(latest.getTransportRequestId()).isEqualTo(transportRequestId);
+            assertThat(latest.getDestinationOfferId()).isEqualTo(offerTwo.getId());
+            assertThat(latest.getOccurredAt()).isEqualTo(changed.changedAt());
+        });
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(changed.changedAt().toString()));
+
+        var changedBack = destinationService.select(
+                paramedicPrincipal(paramedic), requestId, "destination-key-4", offerOne.getPublicId()
+        );
+        assertThat(changedBack.resultType()).isEqualTo(TransportDestinationResultType.CHANGED);
+        assertThat(changedBack.previousDestinationOfferId()).isEqualTo(offerTwo.getPublicId());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(changedBack.changedAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "ACTIVE")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(true));
 
         assertThatThrownBy(() -> destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "destination-key-2", offerOne.getPublicId()
@@ -201,6 +237,8 @@ class TransportDestinationServiceIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists())
                 .andExpect(jsonPath("$.items[0].canWithdraw").value(true))
                 .andExpect(jsonPath("$.items[0].ageStatus").doesNotExist())
                 .andExpect(jsonPath("$.items[0].routeEstimateStatus").doesNotExist());
@@ -226,6 +264,8 @@ class TransportDestinationServiceIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTANCE_WITHDRAWN"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTANCE_WITHDRAWN"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists())
                 .andExpect(jsonPath("$.items[0].canWithdraw").value(false))
                 .andExpect(jsonPath("$.items[0].withdrawalReason").value("OTHER"))
                 .andExpect(jsonPath("$.items[0].withdrawalDetail").value("전문의 상황 변경"));

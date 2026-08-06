@@ -10,7 +10,9 @@ import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
+import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.RouteEstimateCoordinator;
+import com.hansungteam.ersync.hospital.search.api.HospitalOfferView;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
@@ -59,6 +61,7 @@ class HospitalSearchIntegrationTest {
     @Autowired private AuditEventRepository auditEventRepository;
     @Autowired private TransportRequestService transportRequestService;
     @Autowired private HospitalSearchService hospitalSearchService;
+    @Autowired private HospitalOfferService hospitalOfferService;
     @Autowired private RouteEstimateCoordinator routeEstimateCoordinator;
 
     @Test
@@ -176,7 +179,7 @@ class HospitalSearchIntegrationTest {
     @Test
     void finalResponseWindowMarksPendingOfferNoResponseAndExhaustsRequest() {
         UserAccount paramedic = createParamedic("searchmedic4");
-        createHospital("timeouthospital", "37.6021000", ReceivingStatus.ON, true);
+        UserAccount hospital = createHospital("timeouthospital", "37.6021000", ReceivingStatus.ON, true);
 
         var creation = transportRequestService.create(
                 authenticated(paramedic),
@@ -203,6 +206,17 @@ class HospitalSearchIntegrationTest {
         assertThat(request.getStatus()).isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
         assertThat(outboxEventRepository.count()).isEqualTo(3);
         assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_OFFER_NO_RESPONSE)).isEqualTo(1);
+
+        var history = hospitalOfferService.list(
+                hospitalAuthenticated(hospital),
+                HospitalOfferView.HISTORY,
+                0,
+                20
+        );
+        assertThat(history.items()).singleElement().satisfies(item -> {
+            assertThat(item.hospitalOutcome().name()).isEqualTo("NO_RESPONSE");
+            assertThat(item.processedAt()).isEqualTo(offer.getClosedAt());
+        });
     }
 
     @Test
@@ -256,7 +270,7 @@ class HospitalSearchIntegrationTest {
         return account;
     }
 
-    private void createHospital(
+    private UserAccount createHospital(
             String loginId,
             String latitude,
             ReceivingStatus receivingStatus,
@@ -285,6 +299,7 @@ class HospitalSearchIntegrationTest {
         );
         profile.changeReceivingStatus(receivingStatus);
         hospitalProfileRepository.save(profile);
+        return account;
     }
 
     private AuthenticatedAccount authenticated(UserAccount account) {
@@ -292,6 +307,14 @@ class HospitalSearchIntegrationTest {
                 account.getPublicId(),
                 account.getOrganization().getPublicId(),
                 UserRole.PARAMEDIC
+        );
+    }
+
+    private AuthenticatedAccount hospitalAuthenticated(UserAccount account) {
+        return new AuthenticatedAccount(
+                account.getPublicId(),
+                account.getOrganization().getPublicId(),
+                UserRole.HOSPITAL_STAFF
         );
     }
 }

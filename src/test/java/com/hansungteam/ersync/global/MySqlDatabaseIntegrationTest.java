@@ -9,6 +9,10 @@ import com.hansungteam.ersync.hospital.application.HospitalReceivingService;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
+import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
+import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
+import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
+import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
@@ -18,6 +22,8 @@ import com.hansungteam.ersync.privacy.domain.ContactSharingConsent;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import com.hansungteam.ersync.transport.ValidTransportRequestFixtures;
 import com.hansungteam.ersync.transport.application.TransportRequestService;
+import com.hansungteam.ersync.transport.destination.application.TransportDestinationService;
+import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
@@ -35,6 +42,7 @@ import org.testcontainers.utility.DockerImageName;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,7 +56,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "ersync.auth.jwt-secret-base64=dGVzdC1qd3Qtc2VjcmV0LWtleS0zMi1ieXRlcy1mb3ItdGVzdHM=",
-        "ersync.invitation.expiry-scheduler-enabled=false"
+        "ersync.invitation.expiry-scheduler-enabled=false",
+        "ersync.hospital-search.scheduler-enabled=false",
+        "ersync.maps.naver.eta-scheduler-enabled=false",
+        "ersync.realtime.scheduler-enabled=false"
 })
 @Testcontainers(disabledWithoutDocker = true)
 @AutoConfigureMockMvc
@@ -74,6 +85,12 @@ class MySqlDatabaseIntegrationTest {
     @Autowired private ContactSharingConsentRepository consentRepository;
     @Autowired private TransportRequestRepository transportRequestRepository;
     @Autowired private TransportRequestService transportRequestService;
+    @Autowired private HospitalDispatchAttemptRepository dispatchAttemptRepository;
+    @Autowired private HospitalOfferRepository hospitalOfferRepository;
+    @Autowired private HospitalSearchService hospitalSearchService;
+    @Autowired private HospitalOfferService hospitalOfferService;
+    @Autowired private TransportDestinationService transportDestinationService;
+    @Autowired private TransportDestinationCommandRepository destinationCommandRepository;
 
     @DynamicPropertySource
     static void registerMySqlProperties(DynamicPropertyRegistry registry) {
@@ -198,6 +215,110 @@ class MySqlDatabaseIntegrationTest {
     }
 
     @Test
+    @Transactional
+    void latestEffectiveDestinationProjectionRunsOnMySql84() {
+        Organization paramedicOrganization = organizationRepository.save(Organization.create(
+                "MySQL 목적지 조회 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        UserAccount paramedic = userAccountRepository.save(UserAccount.createMember(
+                paramedicOrganization,
+                "mysqlprojectionmedic",
+                "encoded-password",
+                UserRole.PARAMEDIC
+        ));
+        paramedicProfileRepository.save(ParamedicProfile.create(
+                paramedic,
+                paramedicOrganization,
+                "010-0000-0085"
+        ));
+        consentRepository.save(ContactSharingConsent.record(
+                paramedic,
+                "CONTACT_SHARING_DEV_1.0",
+                Instant.parse("2026-08-06T09:00:00Z")
+        ));
+
+        UserAccount hospitalOne = createReceivingHospital(
+                "mysqlprojectionhospital1",
+                "MySQL 목적지 조회 1병원",
+                "37.6021000"
+        );
+        UserAccount hospitalTwo = createReceivingHospital(
+                "mysqlprojectionhospital2",
+                "MySQL 목적지 조회 2병원",
+                "37.6121000"
+        );
+        Long hospitalOneProfileId = hospitalProfileRepository.findByAccountPublicId(hospitalOne.getPublicId())
+                .orElseThrow()
+                .getId();
+        Long hospitalTwoProfileId = hospitalProfileRepository.findByAccountPublicId(hospitalTwo.getPublicId())
+                .orElseThrow()
+                .getId();
+        AuthenticatedAccount paramedicPrincipal = new AuthenticatedAccount(
+                paramedic.getPublicId(),
+                paramedicOrganization.getPublicId(),
+                UserRole.PARAMEDIC
+        );
+        String requestId = transportRequestService.create(
+                paramedicPrincipal,
+                "mysql-projection-request",
+                ValidTransportRequestFixtures.request()
+        ).response().transportRequestId();
+        var attempt = dispatchAttemptRepository
+                .findByTransportRequestPublicIdAndAttemptNumber(requestId, 1)
+                .orElseThrow();
+        hospitalSearchService.processDueAttempt(attempt.getId());
+        var offers = hospitalOfferRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var offerOne = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getId().equals(hospitalOneProfileId))
+                .findFirst()
+                .orElseThrow();
+        var offerTwo = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getId().equals(hospitalTwoProfileId))
+                .findFirst()
+                .orElseThrow();
+
+        hospitalOfferService.accept(hospitalPrincipal(hospitalOne), offerOne.getPublicId(), "mysql-accept-1");
+        hospitalOfferService.accept(hospitalPrincipal(hospitalTwo), offerTwo.getPublicId(), "mysql-accept-2");
+        transportDestinationService.select(
+                paramedicPrincipal,
+                requestId,
+                "mysql-destination-1",
+                offerOne.getPublicId()
+        );
+        var changed = transportDestinationService.select(
+                paramedicPrincipal,
+                requestId,
+                "mysql-destination-2",
+                offerTwo.getPublicId()
+        );
+        transportDestinationService.select(
+                paramedicPrincipal,
+                requestId,
+                "mysql-destination-3",
+                offerTwo.getPublicId()
+        );
+
+        Long transportRequestId = transportRequestRepository.findByPublicId(requestId).orElseThrow().getId();
+        assertThat(destinationCommandRepository.findLatestEffectiveDestinations(Set.of(transportRequestId)))
+                .singleElement()
+                .satisfies(destination -> {
+                    assertThat(destination.getTransportRequestId()).isEqualTo(transportRequestId);
+                    assertThat(destination.getDestinationOfferId()).isEqualTo(offerTwo.getId());
+                    assertThat(destination.getOccurredAt()).isNotNull();
+                    assertThat(destination.getOccurredAt()).isBeforeOrEqualTo(changed.changedAt());
+                });
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'transport_destination_commands'
+                  AND index_name = 'idx_destination_commands_request_occurred'
+                  AND column_name IN ('transport_request_id', 'occurred_at')
+                """, Integer.class)).isEqualTo(2);
+    }
+
+    @Test
     void concurrentHospitalReceivingChangesAreSerializedOnMySql84() throws Exception {
         Organization organization = organizationRepository.save(Organization.create(
                 "MySQL 동시 수신 병원",
@@ -249,6 +370,38 @@ class MySqlDatabaseIntegrationTest {
                 .get()
                 .extracting(HospitalProfile::getReceivingStatus)
                 .isIn(ReceivingStatus.ON, ReceivingStatus.OFF);
+    }
+
+    private UserAccount createReceivingHospital(String loginId, String organizationName, String latitude) {
+        Organization organization = organizationRepository.save(Organization.create(
+                organizationName,
+                OrganizationType.HOSPITAL
+        ));
+        UserAccount account = userAccountRepository.save(UserAccount.createMember(
+                organization,
+                loginId,
+                "encoded-password",
+                UserRole.HOSPITAL_STAFF
+        ));
+        HospitalProfile profile = HospitalProfile.create(
+                organization,
+                account,
+                "서울특별시 테스트 주소",
+                new BigDecimal(latitude),
+                new BigDecimal("127.0105000"),
+                "02-0000-0085"
+        );
+        profile.changeReceivingStatus(ReceivingStatus.ON);
+        hospitalProfileRepository.save(profile);
+        return account;
+    }
+
+    private AuthenticatedAccount hospitalPrincipal(UserAccount account) {
+        return new AuthenticatedAccount(
+                account.getPublicId(),
+                account.getOrganization().getPublicId(),
+                UserRole.HOSPITAL_STAFF
+        );
     }
 
     private static String jdbcUrl() {

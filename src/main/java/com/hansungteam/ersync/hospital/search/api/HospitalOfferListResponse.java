@@ -25,6 +25,8 @@ public record HospitalOfferListResponse(
             Integer dispatchAttemptNumber,
             TransportRequestStatus transportRequestStatus,
             HospitalOfferStatus offerStatus,
+            HospitalOutcome hospitalOutcome,
+            Instant processedAt,
             boolean currentDestination,
             boolean canWithdraw,
             String ageStatus,

@@ -11,6 +11,7 @@ import com.hansungteam.ersync.hospital.application.HospitalReceivingService;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
+import com.hansungteam.ersync.hospital.search.api.RejectHospitalOfferRequest;
 import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
 import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
@@ -18,6 +19,7 @@ import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawa
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
 import com.hansungteam.ersync.organization.domain.Organization;
@@ -242,15 +244,133 @@ class TransportLifecycleIntegrationTest {
     }
 
     @Test
+    void cancellationPreservesRejectedOutcomeAndCancelsAcceptedAndPendingHospitals() throws Exception {
+        UserAccount paramedic = createParamedic("mixedcancelmedic");
+        UserAccount acceptedHospital = createHospital("mixedcancelaccepted", "37.6021000");
+        UserAccount rejectedHospital = createHospital("mixedcancelrejected", "37.6121000");
+        UserAccount pendingHospital = createHospital("mixedcancelpending", "37.6221000");
+        String requestId = createAndSearch(paramedic, "mixed-cancel-request");
+        HospitalOffer acceptedOffer = offerFor(acceptedHospital, requestId);
+        HospitalOffer rejectedOffer = offerFor(rejectedHospital, requestId);
+
+        offerService.accept(
+                hospitalPrincipal(acceptedHospital),
+                acceptedOffer.getPublicId(),
+                "mixed-cancel-accept"
+        );
+        offerService.reject(
+                hospitalPrincipal(rejectedHospital),
+                rejectedOffer.getPublicId(),
+                "mixed-cancel-reject",
+                new RejectHospitalOfferRequest(HospitalRejectionReason.SPECIALIST_UNAVAILABLE, null)
+        );
+        lifecycleService.cancel(
+                paramedicPrincipal(paramedic),
+                requestId,
+                "mixed-cancel-command",
+                new CancelTransportRequestRequest(TransportCancellationReason.SCENE_RESOLVED, null)
+        );
+
+        Instant cancelledAt = requestRepository.findByPublicId(requestId).orElseThrow().getCancelledAt();
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(acceptedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("TRANSPORT_CANCELLED"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(cancelledAt.toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("PENDING"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("TRANSPORT_CANCELLED"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(cancelledAt.toString()));
+    }
+
+    @Test
     void handoffNeedsParamedicRequestAndDestinationHospitalConfirmation() throws Exception {
         UserAccount paramedic = createParamedic("handoffmedic");
         UserAccount hospital = createHospital("handoffhospital", "37.6021000");
+        UserAccount otherAcceptedHospital = createHospital("handoffotheraccepted", "37.6121000");
+        UserAccount rejectedHospital = createHospital("handoffrejected", "37.6221000");
+        UserAccount withdrawnHospital = createHospital("handoffwithdrawn", "37.6321000");
+        UserAccount pendingHospital = createHospital("handoffpending", "37.6421000");
         String requestId = createAndSearch(paramedic, "handoff-request-key");
         HospitalOffer offer = offerFor(hospital, requestId);
+        HospitalOffer otherAcceptedOffer = offerFor(otherAcceptedHospital, requestId);
+        HospitalOffer rejectedOffer = offerFor(rejectedHospital, requestId);
+        HospitalOffer withdrawnOffer = offerFor(withdrawnHospital, requestId);
         offerService.accept(hospitalPrincipal(hospital), offer.getPublicId(), "handoff-accept-key");
-        destinationService.select(
+        offerService.accept(
+                hospitalPrincipal(otherAcceptedHospital),
+                otherAcceptedOffer.getPublicId(),
+                "handoff-other-accept-key"
+        );
+        offerService.accept(
+                hospitalPrincipal(withdrawnHospital),
+                withdrawnOffer.getPublicId(),
+                "handoff-withdrawn-accept-key"
+        );
+        offerService.reject(
+                hospitalPrincipal(rejectedHospital),
+                rejectedOffer.getPublicId(),
+                "handoff-reject-key",
+                new RejectHospitalOfferRequest(HospitalRejectionReason.ER_GENERAL_BED_SHORTAGE, null)
+        );
+        var destinationSelected = destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "handoff-destination-key", offer.getPublicId()
         );
+        offerService.withdrawAcceptance(
+                hospitalPrincipal(withdrawnHospital),
+                withdrawnOffer.getPublicId(),
+                "handoff-withdrawn-command-key",
+                new WithdrawHospitalAcceptanceRequest(
+                        HospitalAcceptanceWithdrawalReason.BED_SHORTAGE,
+                        null
+                )
+        );
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.processedAt").exists());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(otherAcceptedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].transportRequestStatus").value("EN_ROUTE"))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(destinationSelected.changedAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(withdrawnHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTANCE_WITHDRAWN"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTANCE_WITHDRAWN"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("PENDING"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(destinationSelected.changedAt().toString()));
 
         mockMvc.perform(post("/api/v1/transport-requests/{requestId}/handoff-request", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
@@ -272,6 +392,8 @@ class TransportLifecycleIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].canConfirmHandoff").value(true))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists())
                 .andExpect(jsonPath("$.items[0].transportRequestStatus").value("HANDOFF_REQUESTED"));
 
         receivingService.change(hospitalPrincipal(hospital), ReceivingStatus.OFF);
@@ -312,9 +434,44 @@ class TransportLifecycleIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].transportRequestStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("HANDOFF_COMPLETED_HERE"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(completed.getCompletedAt().toString()))
                 .andExpect(jsonPath("$.items[0].canConfirmHandoff").value(false))
                 .andExpect(jsonPath("$.items[0].completedAt").exists())
                 .andExpect(jsonPath("$.items[0].ageStatus").doesNotExist());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(otherAcceptedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].transportRequestStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("COMPLETED_ELSEWHERE"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(completed.getCompletedAt().toString()))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].transportRequestStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(withdrawnHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].transportRequestStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTANCE_WITHDRAWN"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].transportRequestStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("PENDING"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("COMPLETED_ELSEWHERE"))
+                .andExpect(jsonPath("$.items[0].processedAt").value(completed.getCompletedAt().toString()));
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isNotFound())
@@ -415,6 +572,8 @@ class TransportLifecycleIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].transportRequestStatus").value("CANCELLED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("TRANSPORT_CANCELLED"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists())
                 .andExpect(jsonPath("$.items[0].ageStatus").doesNotExist());
     }
 

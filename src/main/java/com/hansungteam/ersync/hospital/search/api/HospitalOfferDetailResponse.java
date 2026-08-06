@@ -19,6 +19,8 @@ public record HospitalOfferDetailResponse(
         int dispatchAttemptNumber,
         TransportRequestStatus transportRequestStatus,
         HospitalOfferStatus offerStatus,
+        HospitalOutcome hospitalOutcome,
+        Instant processedAt,
         boolean currentDestination,
         boolean canWithdraw,
         Patient patient,
