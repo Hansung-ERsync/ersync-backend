@@ -34,6 +34,7 @@ import com.hansungteam.ersync.realtime.domain.RealtimeEventType;
 import com.hansungteam.ersync.realtime.domain.RealtimeOutboxEvent;
 import com.hansungteam.ersync.realtime.infrastructure.RealtimeOutboxEventRepository;
 import com.hansungteam.ersync.transport.application.IdempotencyKeyPolicy;
+import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
@@ -51,7 +52,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** 병원 조직에 전달된 제안만 조회·응답하도록 조직 격리와 상태 전이를 담당합니다. */
@@ -69,8 +72,10 @@ public class HospitalOfferService {
     private final TransportRequestRepository transportRequestRepository;
     private final CurrentPatientSnapshotRepository snapshotRepository;
     private final RealtimeOutboxEventRepository outboxEventRepository;
+    private final TransportDestinationCommandRepository destinationCommandRepository;
     private final HospitalCommandFingerprint commandFingerprint;
     private final HospitalSearchService hospitalSearchService;
+    private final HospitalOfferOutcomeResolver outcomeResolver;
     private final AuditService auditService;
     private final Clock clock;
 
@@ -94,11 +99,21 @@ public class HospitalOfferService {
         Page<HospitalOffer> result = view == HospitalOfferView.ACTIVE
                 ? offerRepository.findActiveForHospital(profile.getId(), pageable)
                 : offerRepository.findHistoryForHospital(profile.getId(), pageable);
+        Map<Long, Instant> destinationChangedAtByRequestId = latestEffectiveDestinationChangedAt(
+                result.getContent()
+        );
         Instant now = clock.instant();
         List<HospitalOfferListResponse.Item> items = result.getContent().stream()
                 .map(offer -> isHiddenResponseHistory(offer)
-                        ? toMinimalHistoryItem(offer)
-                        : toListItem(offer, requireSnapshot(offer)))
+                        ? toMinimalHistoryItem(
+                                offer,
+                                destinationChangedAtByRequestId.get(offer.getTransportRequest().getId())
+                        )
+                        : toListItem(
+                                offer,
+                                requireSnapshot(offer),
+                                destinationChangedAtByRequestId.get(offer.getTransportRequest().getId())
+                        ))
                 .toList();
         return new HospitalOfferListResponse(
                 items,
@@ -467,16 +482,20 @@ public class HospitalOfferService {
 
     private HospitalOfferListResponse.Item toListItem(
             HospitalOffer offer,
-            CurrentPatientSnapshot snapshot
+            CurrentPatientSnapshot snapshot,
+            Instant currentDestinationChangedAt
     ) {
         var demographics = snapshot.getPatientDemographics();
         var preKtas = snapshot.getLatestPreKtasAssessment();
+        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer, currentDestinationChangedAt);
         return new HospitalOfferListResponse.Item(
                 offer.getPublicId(),
                 offer.getTransportRequest().getPublicId(),
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getTransportRequest().getStatus(),
                 offer.getStatus(),
+                outcome.outcome(),
+                outcome.processedAt(),
                 offer.getTransportRequest().hasDestination(offer),
                 canWithdraw(offer),
                 demographics.getAgeStatus().name(),
@@ -506,13 +525,19 @@ public class HospitalOfferService {
         );
     }
 
-    private HospitalOfferListResponse.Item toMinimalHistoryItem(HospitalOffer offer) {
+    private HospitalOfferListResponse.Item toMinimalHistoryItem(
+            HospitalOffer offer,
+            Instant currentDestinationChangedAt
+    ) {
+        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer, currentDestinationChangedAt);
         return new HospitalOfferListResponse.Item(
                 offer.getPublicId(),
                 offer.getTransportRequest().getPublicId(),
                 null,
                 offer.getTransportRequest().getStatus(),
                 offer.getStatus(),
+                outcome.outcome(),
+                outcome.processedAt(),
                 false,
                 canWithdraw(offer),
                 null,
@@ -552,6 +577,7 @@ public class HospitalOfferService {
         var preKtas = snapshot.getLatestPreKtasAssessment();
         var consciousness = snapshot.getLatestConsciousnessAssessment();
         var vitalSigns = snapshot.getLatestVitalSignSet();
+        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer, null);
         List<HospitalOfferDetailResponse.VitalSign> measurements = vitalSigns.getMeasurements().stream()
                 .map(measurement -> new HospitalOfferDetailResponse.VitalSign(
                         measurement.getMeasurementType().name(),
@@ -587,6 +613,8 @@ public class HospitalOfferService {
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getTransportRequest().getStatus(),
                 offer.getStatus(),
+                outcome.outcome(),
+                outcome.processedAt(),
                 offer.getTransportRequest().hasDestination(offer),
                 canWithdraw(offer),
                 new HospitalOfferDetailResponse.Patient(
@@ -652,6 +680,42 @@ public class HospitalOfferService {
                 offer.getTransportRequest().getCancellationReason(),
                 now
         );
+    }
+
+    private Map<Long, Instant> latestEffectiveDestinationChangedAt(List<HospitalOffer> offers) {
+        Map<Long, Long> currentDestinationIdByRequestId = new HashMap<>();
+        for (HospitalOffer offer : offers) {
+            TransportRequest request = offer.getTransportRequest();
+            if (request.getCurrentDestinationOffer() != null
+                    && request.getStatus() != TransportRequestStatus.COMPLETED
+                    && request.getStatus() != TransportRequestStatus.CANCELLED
+                    && !request.hasDestination(offer)
+                    && (offer.getStatus() == HospitalOfferStatus.PENDING
+                            || offer.getStatus() == HospitalOfferStatus.ACCEPTED)) {
+                currentDestinationIdByRequestId.put(
+                        request.getId(),
+                        request.getCurrentDestinationOffer().getId()
+                );
+            }
+        }
+        if (currentDestinationIdByRequestId.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, Instant> changedAtByRequestId = new HashMap<>();
+        destinationCommandRepository.findLatestEffectiveDestinations(currentDestinationIdByRequestId.keySet())
+                .forEach(destination -> {
+                    Long currentDestinationId = currentDestinationIdByRequestId.get(
+                            destination.getTransportRequestId()
+                    );
+                    if (destination.getDestinationOfferId().equals(currentDestinationId)) {
+                        changedAtByRequestId.put(
+                                destination.getTransportRequestId(),
+                                destination.getOccurredAt()
+                        );
+                    }
+                });
+        return changedAtByRequestId;
     }
 
     private boolean isHiddenResponseHistory(HospitalOffer offer) {
