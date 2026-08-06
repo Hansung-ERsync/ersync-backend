@@ -51,10 +51,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -134,30 +136,40 @@ class TransportDestinationServiceIntegrationTest {
         var latestEffectiveDestinations = commandRepository.findLatestEffectiveDestinations(
                 Set.of(transportRequestId)
         );
-        assertThat(latestEffectiveDestinations).singleElement().satisfies(latest -> {
-            assertThat(latest.getTransportRequestId()).isEqualTo(transportRequestId);
-            assertThat(latest.getDestinationOfferId()).isEqualTo(offerTwo.getId());
-            assertThat(latest.getOccurredAt()).isEqualTo(changed.changedAt());
-        });
+        assertThat(latestEffectiveDestinations).hasSize(1);
+        var latestDestination = latestEffectiveDestinations.getFirst();
+        assertThat(latestDestination.getTransportRequestId()).isEqualTo(transportRequestId);
+        assertThat(latestDestination.getDestinationOfferId()).isEqualTo(offerTwo.getId());
+        assertThat(latestDestination.getOccurredAt())
+                .isCloseTo(changed.changedAt(), within(1, ChronoUnit.MICROS));
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "HISTORY")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(changed.changedAt().toString()));
+                .andExpect(jsonPath("$.items[0].processedAt").value(latestDestination.getOccurredAt().toString()));
 
         var changedBack = destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "destination-key-4", offerOne.getPublicId()
         );
         assertThat(changedBack.resultType()).isEqualTo(TransportDestinationResultType.CHANGED);
         assertThat(changedBack.previousDestinationOfferId()).isEqualTo(offerTwo.getPublicId());
+        var changedBackDestinations = commandRepository.findLatestEffectiveDestinations(
+                Set.of(transportRequestId)
+        );
+        assertThat(changedBackDestinations).hasSize(1);
+        var changedBackDestination = changedBackDestinations.getFirst();
+        assertThat(changedBackDestination.getDestinationOfferId()).isEqualTo(offerOne.getId());
+        assertThat(changedBackDestination.getOccurredAt())
+                .isCloseTo(changedBack.changedAt(), within(1, ChronoUnit.MICROS));
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "HISTORY")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(changedBack.changedAt().toString()));
+                .andExpect(jsonPath("$.items[0].processedAt")
+                        .value(changedBackDestination.getOccurredAt().toString()));
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))

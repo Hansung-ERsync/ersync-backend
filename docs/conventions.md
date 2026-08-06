@@ -76,6 +76,9 @@ event={} traceId={} code={} status={} method={} path={} message="{}" exception={
 - 중복 명령이나 경합 가능성이 있으면 멱등성과 동시성 테스트를 검토합니다.
 - JPA 매핑과 migration은 실제 MySQL 8.4 호환성을 확인합니다.
 - H2는 빠른 검사 용도이며 MySQL 호환성의 최종 증명으로 사용하지 않습니다.
+- DB 시각 응답은 저장 직전의 인메모리 `Instant`와 문자열로 정확히 비교하지 않습니다.
+  `DATETIME(6)` 정밀도를 고려해 projection이나 재조회 값으로 응답을 검증하고,
+  원본 시각과는 1마이크로초 이내인지 확인합니다.
 - PR 전에 `./gradlew clean check`를 통과합니다.
 
 ### 2.6 외부 계약

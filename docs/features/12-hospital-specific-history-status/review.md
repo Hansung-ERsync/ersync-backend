@@ -83,6 +83,7 @@ React Handoff: docs/handoffs/12-hospital-specific-history-status/react-hospital-
 | resolver 단위 테스트 | PASS | 9개 결과의 활성·완료·취소·원래 응답 우선순위와 nullable 시각 |
 | 목적지 projection 통합 테스트 | PASS | SELECTED→CHANGED→UNCHANGED 뒤 마지막 실제 CHANGED 결과 반환 |
 | MySQL 8.4 projection | PASS | 실제 MySQL 8.4에서 JPQL 실행, 최신 목적지·시각과 기존 복합 인덱스 확인 |
+| CI 시간 정밀도 회귀 | PASS | DB `DATETIME(6)` 재조회 시각으로 API를 검증하고 원본 시각과 1마이크로초 이내 확인 |
 | 다병원 인계 완료 API | PASS | 목적지·다른 수락·거절 병원의 서로 다른 결과와 처리 시각 |
 | 무응답·철회·취소 API | PASS | `NO_RESPONSE`, `ACCEPTANCE_WITHDRAWN`, `TRANSPORT_CANCELLED`와 시각 |
 | local 실행·readiness | PASS | MySQL 8.4.11, Flyway 9개 검증, JPA 기동, `{"status":"UP"}` |

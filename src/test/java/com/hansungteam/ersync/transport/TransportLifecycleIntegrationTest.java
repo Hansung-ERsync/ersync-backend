@@ -35,6 +35,7 @@ import com.hansungteam.ersync.transport.api.CancelTransportRequestRequest;
 import com.hansungteam.ersync.transport.application.TransportLifecycleService;
 import com.hansungteam.ersync.transport.application.TransportRequestService;
 import com.hansungteam.ersync.transport.destination.application.TransportDestinationService;
+import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.domain.TransportCancellationReason;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.infrastructure.TransportLifecycleCommandRepository;
@@ -51,9 +52,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -74,6 +78,7 @@ class TransportLifecycleIntegrationTest {
     @Autowired private HospitalOfferRepository offerRepository;
     @Autowired private TransportRequestRepository requestRepository;
     @Autowired private TransportLifecycleCommandRepository commandRepository;
+    @Autowired private TransportDestinationCommandRepository destinationCommandRepository;
     @Autowired private RealtimeOutboxEventRepository outboxRepository;
     @Autowired private AuditEventRepository auditRepository;
     @Autowired private TransportRequestService requestService;
@@ -338,6 +343,17 @@ class TransportLifecycleIntegrationTest {
                 )
         );
 
+        Long transportRequestId = requestRepository.findByPublicId(requestId).orElseThrow().getId();
+        var latestDestinations = destinationCommandRepository.findLatestEffectiveDestinations(
+                Set.of(transportRequestId)
+        );
+        assertThat(latestDestinations).hasSize(1);
+        var latestDestination = latestDestinations.getFirst();
+        assertThat(latestDestination.getDestinationOfferId()).isEqualTo(offer.getId());
+        assertThat(latestDestination.getOccurredAt())
+                .isCloseTo(destinationSelected.changedAt(), within(1, ChronoUnit.MICROS));
+        Instant destinationProcessedAt = latestDestination.getOccurredAt();
+
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
@@ -350,7 +366,7 @@ class TransportLifecycleIntegrationTest {
                 .andExpect(jsonPath("$.items[0].transportRequestStatus").value("EN_ROUTE"))
                 .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(destinationSelected.changedAt().toString()));
+                .andExpect(jsonPath("$.items[0].processedAt").value(destinationProcessedAt.toString()));
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "HISTORY")
                         .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
@@ -370,7 +386,7 @@ class TransportLifecycleIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].offerStatus").value("PENDING"))
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(destinationSelected.changedAt().toString()));
+                .andExpect(jsonPath("$.items[0].processedAt").value(destinationProcessedAt.toString()));
 
         mockMvc.perform(post("/api/v1/transport-requests/{requestId}/handoff-request", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
