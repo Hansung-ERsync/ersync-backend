@@ -41,6 +41,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -50,6 +51,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -306,7 +308,8 @@ class MySqlDatabaseIntegrationTest {
                     assertThat(destination.getTransportRequestId()).isEqualTo(transportRequestId);
                     assertThat(destination.getDestinationOfferId()).isEqualTo(offerTwo.getId());
                     assertThat(destination.getOccurredAt()).isNotNull();
-                    assertThat(destination.getOccurredAt()).isBeforeOrEqualTo(changed.changedAt());
+                    assertThat(destination.getOccurredAt())
+                            .isCloseTo(changed.changedAt(), within(1, ChronoUnit.MICROS));
                 });
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
