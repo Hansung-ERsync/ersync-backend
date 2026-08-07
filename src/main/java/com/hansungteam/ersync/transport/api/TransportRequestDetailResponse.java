@@ -13,6 +13,7 @@ public record TransportRequestDetailResponse(
         Patient patient,
         Incident incident,
         ClinicalTimelineResponse.LatestSnapshot latestSnapshot,
+        SupplementalAssessmentResponse supplementalAssessment,
         Instant createdAt,
         Instant serverNow
 ) {

@@ -9,7 +9,7 @@ import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
-import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
+import com.hansungteam.ersync.hospital.search.application.HospitalClinicalAccessPolicy;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.transport.api.ClinicalTimelineResponse;
@@ -18,7 +18,6 @@ import com.hansungteam.ersync.transport.domain.ConsciousnessAssessment;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
 import com.hansungteam.ersync.transport.domain.PreKtasAssessment;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
-import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.domain.TreatmentEvent;
 import com.hansungteam.ersync.transport.domain.VitalSignSet;
 import com.hansungteam.ersync.transport.infrastructure.ClinicalTimelineRepository;
@@ -57,6 +56,7 @@ public class ClinicalTimelineQueryService {
     private final PreKtasAssessmentRepository preKtasAssessmentRepository;
     private final TreatmentEventRepository treatmentEventRepository;
     private final ClinicalSnapshotResponseMapper snapshotResponseMapper;
+    private final HospitalClinicalAccessPolicy hospitalClinicalAccessPolicy;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -92,7 +92,7 @@ public class ClinicalTimelineQueryService {
                         offerId, profile.getOrganization().getPublicId()
                 )
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
-        if (!canReadClinical(offer)) {
+        if (!hospitalClinicalAccessPolicy.canRead(offer)) {
             throw new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND);
         }
         return timeline(offer.getTransportRequest(), page, size);
@@ -143,19 +143,6 @@ public class ClinicalTimelineQueryService {
                 request.getPublicId(), snapshotResponseMapper.latest(snapshot),
                 items, page, size, total, totalPages, clock.instant()
         );
-    }
-
-    private boolean canReadClinical(HospitalOffer offer) {
-        TransportRequest request = offer.getTransportRequest();
-        if (request.getStatus() == TransportRequestStatus.COMPLETED
-                || request.getStatus() == TransportRequestStatus.CANCELLED) {
-            return false;
-        }
-        if (request.getCurrentDestinationOffer() != null) {
-            return offer.getStatus() == HospitalOfferStatus.ACCEPTED && request.hasDestination(offer);
-        }
-        return offer.getStatus() == HospitalOfferStatus.PENDING
-                || offer.getStatus() == HospitalOfferStatus.ACCEPTED;
     }
 
     private UserAccount requireAccount(AuthenticatedAccount authenticated, UserRole expectedRole) {

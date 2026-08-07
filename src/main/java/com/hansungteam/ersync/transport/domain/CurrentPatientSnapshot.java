@@ -71,6 +71,10 @@ public class CurrentPatientSnapshot {
     @OrderBy("serverReceivedAt ASC, id ASC")
     private List<TreatmentEvent> currentTreatments = new ArrayList<>();
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "latest_supplemental_assessment_id")
+    private SupplementalAssessmentRecord latestSupplementalAssessment;
+
     @Column(name = "assessment_protocol_version", nullable = false, length = 50)
     private String assessmentProtocolVersion;
 
@@ -95,6 +99,7 @@ public class CurrentPatientSnapshot {
             ConsciousnessAssessment latestConsciousnessAssessment,
             VitalSignSet latestVitalSignSet,
             List<TreatmentEvent> currentTreatments,
+            SupplementalAssessmentRecord latestSupplementalAssessment,
             String assessmentProtocolVersion,
             Instant lastClinicalUpdateAt,
             Instant createdAt
@@ -107,6 +112,7 @@ public class CurrentPatientSnapshot {
         this.latestConsciousnessAssessment = latestConsciousnessAssessment;
         this.latestVitalSignSet = latestVitalSignSet;
         this.currentTreatments.addAll(currentTreatments);
+        this.latestSupplementalAssessment = latestSupplementalAssessment;
         this.assessmentProtocolVersion = assessmentProtocolVersion;
         this.lastClinicalUpdateAt = lastClinicalUpdateAt;
         this.createdAt = createdAt;
@@ -122,6 +128,7 @@ public class CurrentPatientSnapshot {
             ConsciousnessAssessment latestConsciousnessAssessment,
             VitalSignSet latestVitalSignSet,
             List<TreatmentEvent> currentTreatments,
+            SupplementalAssessmentRecord latestSupplementalAssessment,
             String assessmentProtocolVersion,
             Instant lastClinicalUpdateAt,
             Instant createdAt
@@ -134,6 +141,35 @@ public class CurrentPatientSnapshot {
                 latestConsciousnessAssessment,
                 latestVitalSignSet,
                 currentTreatments,
+                latestSupplementalAssessment,
+                assessmentProtocolVersion,
+                lastClinicalUpdateAt,
+                createdAt
+        );
+    }
+
+    /** 추가 평가 필드가 생기기 전 내부 호출과 도메인 테스트의 호환 생성자입니다. */
+    public static CurrentPatientSnapshot create(
+            TransportRequest transportRequest,
+            PatientDemographics patientDemographics,
+            IncidentAssessment incidentAssessment,
+            PreKtasAssessment latestPreKtasAssessment,
+            ConsciousnessAssessment latestConsciousnessAssessment,
+            VitalSignSet latestVitalSignSet,
+            List<TreatmentEvent> currentTreatments,
+            String assessmentProtocolVersion,
+            Instant lastClinicalUpdateAt,
+            Instant createdAt
+    ) {
+        return create(
+                transportRequest,
+                patientDemographics,
+                incidentAssessment,
+                latestPreKtasAssessment,
+                latestConsciousnessAssessment,
+                latestVitalSignSet,
+                currentTreatments,
+                null,
                 assessmentProtocolVersion,
                 lastClinicalUpdateAt,
                 createdAt

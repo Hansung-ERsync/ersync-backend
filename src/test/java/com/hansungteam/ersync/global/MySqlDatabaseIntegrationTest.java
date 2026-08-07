@@ -51,6 +51,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -136,12 +137,14 @@ class MySqlDatabaseIntegrationTest {
                       'realtime_outbox_events',
                       'transport_destination_commands',
                       'transport_update_commands',
-                      'transport_current_locations'
+                      'transport_current_locations',
+                      'supplemental_assessment_records',
+                      'general_supplemental_assessments'
                   )
                 """, Integer.class);
 
         assertThat(version).startsWith("8.4");
-        assertThat(featureTableCount).isEqualTo(28);
+        assertThat(featureTableCount).isEqualTo(30);
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.columns
@@ -156,8 +159,10 @@ class MySqlDatabaseIntegrationTest {
                     OR (table_name = 'hospital_offers' AND column_name = 'last_success_eta_calculated_at')
                     OR (table_name = 'paramedic_profiles' AND column_name = 'display_name')
                     OR (table_name = 'contact_sharing_consents' AND column_name = 'consent_type')
+                    OR (table_name = 'current_patient_snapshots'
+                        AND column_name = 'latest_supplemental_assessment_id')
                   )
-                """, Integer.class)).isEqualTo(9);
+                """, Integer.class)).isEqualTo(10);
     }
 
     @Test
@@ -186,10 +191,32 @@ class MySqlDatabaseIntegrationTest {
                 Instant.parse("2026-08-03T09:00:00Z")
         ));
 
+        var base = ValidTransportRequestFixtures.request();
+        var request = new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest(
+                base.assessmentProtocolVersion(),
+                base.origin(),
+                base.patient(),
+                base.incident(),
+                base.preKtas(),
+                base.consciousness(),
+                base.vitalSigns(),
+                base.treatments(),
+                new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                        Instant.parse("2026-08-03T10:00:00Z"),
+                        Instant.parse("2026-08-03T10:01:00Z"),
+                        85,
+                        com.hansungteam.ersync.transport.domain.PupilResponse.NORMAL,
+                        com.hansungteam.ersync.transport.domain.PupilResponse.SLUGGISH,
+                        "고혈압",
+                        null,
+                        null,
+                        false
+                )
+        );
         var result = transportRequestService.create(
                 new AuthenticatedAccount(account.getPublicId(), organization.getPublicId(), UserRole.PARAMEDIC),
                 "mysql-request-key-84",
-                ValidTransportRequestFixtures.request()
+                request
         );
 
         assertThat(result.created()).isTrue();
@@ -202,12 +229,24 @@ class MySqlDatabaseIntegrationTest {
                 "SELECT COUNT(*) FROM current_patient_snapshot_treatments",
                 Integer.class
         )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM supplemental_assessment_records",
+                Integer.class
+        )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM general_supplemental_assessments WHERE isolation_concern = FALSE",
+                Integer.class
+        )).isEqualTo(1);
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE general_supplemental_assessments SET glucose_mg_dl = 1001"
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class);
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM current_patient_snapshots snapshot
                 WHERE snapshot.patient_demographics_id IS NOT NULL
                   AND snapshot.incident_assessment_id IS NOT NULL
                   AND snapshot.assessment_protocol_version = 'ERSYNC_MVP_1.0'
+                  AND snapshot.latest_supplemental_assessment_id IS NOT NULL
                   AND snapshot.last_clinical_update_at = (
                       SELECT request.server_received_at
                       FROM transport_requests request

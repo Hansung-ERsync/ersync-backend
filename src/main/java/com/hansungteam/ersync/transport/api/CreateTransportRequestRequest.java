@@ -9,6 +9,7 @@ import com.hansungteam.ersync.transport.domain.OccurrenceType;
 import com.hansungteam.ersync.transport.domain.OnsetTimeStatus;
 import com.hansungteam.ersync.transport.domain.OriginSource;
 import com.hansungteam.ersync.transport.domain.PatientSex;
+import com.hansungteam.ersync.transport.domain.PupilResponse;
 import com.hansungteam.ersync.transport.domain.PreKtasClassificationStatus;
 import com.hansungteam.ersync.transport.domain.PreKtasExceptionReason;
 import com.hansungteam.ersync.transport.domain.Symptom;
@@ -20,6 +21,8 @@ import com.hansungteam.ersync.transport.domain.VitalSignUnavailableReason;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -39,8 +42,33 @@ public record CreateTransportRequestRequest(
         @NotNull @Valid PreKtasInput preKtas,
         @NotNull @Valid ConsciousnessInput consciousness,
         @NotNull @Valid VitalSignsInput vitalSigns,
-        @NotEmpty @Size(max = 20) List<@NotNull @Valid TreatmentInput> treatments
+        @NotEmpty @Size(max = 20) List<@NotNull @Valid TreatmentInput> treatments,
+        @Valid SupplementalAssessmentInput supplementalAssessment
 ) {
+
+    /** 이전 앱 요청과 내부 테스트 코드가 선택 필드 추가 전 생성자를 계속 사용할 수 있게 합니다. */
+    public CreateTransportRequestRequest(
+            String assessmentProtocolVersion,
+            OriginInput origin,
+            PatientInput patient,
+            IncidentInput incident,
+            PreKtasInput preKtas,
+            ConsciousnessInput consciousness,
+            VitalSignsInput vitalSigns,
+            List<TreatmentInput> treatments
+    ) {
+        this(
+                assessmentProtocolVersion,
+                origin,
+                patient,
+                incident,
+                preKtas,
+                consciousness,
+                vitalSigns,
+                treatments,
+                null
+        );
+    }
 
     public record OriginInput(
             @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
@@ -113,6 +141,19 @@ public record CreateTransportRequestRequest(
             @Valid TreatmentDetailsInput details,
             Instant performedAt,
             @NotNull Instant enteredAt
+    ) {
+    }
+
+    public record SupplementalAssessmentInput(
+            @NotNull Instant assessedAt,
+            @NotNull Instant enteredAt,
+            @Min(0) @Max(1000) Integer glucoseMgDl,
+            PupilResponse leftPupil,
+            PupilResponse rightPupil,
+            @Size(max = 120) String medicalHistory,
+            @Size(max = 120) String allergies,
+            @Size(max = 120) String medications,
+            Boolean isolationConcern
     ) {
     }
 

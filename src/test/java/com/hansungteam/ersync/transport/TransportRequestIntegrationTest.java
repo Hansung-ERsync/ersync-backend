@@ -18,9 +18,11 @@ import com.hansungteam.ersync.privacy.domain.ConsentType;
 import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentRepository;
 import com.hansungteam.ersync.transport.infrastructure.ConsciousnessAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.CurrentPatientSnapshotRepository;
+import com.hansungteam.ersync.transport.infrastructure.GeneralSupplementalAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.IncidentAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.PatientDemographicsRepository;
 import com.hansungteam.ersync.transport.infrastructure.PreKtasAssessmentRepository;
+import com.hansungteam.ersync.transport.infrastructure.SupplementalAssessmentRecordRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import com.hansungteam.ersync.transport.infrastructure.TreatmentEventRepository;
 import com.hansungteam.ersync.transport.infrastructure.VitalSignSetRepository;
@@ -70,6 +72,8 @@ class TransportRequestIntegrationTest {
     @Autowired private ConsciousnessAssessmentRepository consciousnessAssessmentRepository;
     @Autowired private VitalSignSetRepository vitalSignSetRepository;
     @Autowired private TreatmentEventRepository treatmentEventRepository;
+    @Autowired private SupplementalAssessmentRecordRepository supplementalAssessmentRecordRepository;
+    @Autowired private GeneralSupplementalAssessmentRepository generalSupplementalAssessmentRepository;
     @Autowired private CurrentPatientSnapshotRepository currentPatientSnapshotRepository;
     @Autowired private AuditEventRepository auditEventRepository;
     @Autowired private JwtTokenService jwtTokenService;
@@ -105,6 +109,8 @@ class TransportRequestIntegrationTest {
         assertThat(vitalSignSetRepository.count()).isEqualTo(1);
         assertThat(treatmentEventRepository.count()).isEqualTo(1);
         assertThat(currentPatientSnapshotRepository.count()).isEqualTo(1);
+        assertThat(supplementalAssessmentRecordRepository.count()).isZero();
+        assertThat(generalSupplementalAssessmentRepository.count()).isZero();
         var snapshot = currentPatientSnapshotRepository.findByTransportRequestPublicId(requestId).orElseThrow();
         assertThat(snapshot.getPatientDemographics().getAgeYears()).isEqualTo(45);
         assertThat(snapshot.getIncidentAssessment().getPrimarySymptom().name()).isEqualTo("CHEST_PAIN");
@@ -112,6 +118,7 @@ class TransportRequestIntegrationTest {
         assertThat(snapshot.getCurrentTreatments())
                 .extracting(treatment -> treatment.getTreatmentType().name())
                 .containsExactly("NONE");
+        assertThat(snapshot.getLatestSupplementalAssessment()).isNull();
         assertThat(snapshot.getLastClinicalUpdateAt()).isEqualTo(stored.getServerReceivedAt());
         assertThat(auditEventRepository.countByAction(AuditAction.TRANSPORT_REQUEST_CREATED)).isEqualTo(1);
         assertThat(output.getAll())
@@ -119,6 +126,104 @@ class TransportRequestIntegrationTest {
                 .doesNotContain("37.5821000")
                 .doesNotContain("127.0105000")
                 .doesNotContain("CHEST_PAIN");
+    }
+
+    @Test
+    void supplementalAssessmentPersistsOnceAndParticipatesInIdempotency() throws Exception {
+        UserAccount paramedic = createParamedic("supplementalmedic", true);
+        var base = ValidTransportRequestFixtures.request();
+        var supplemental = new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                Instant.parse("2026-08-03T10:00:00Z"),
+                Instant.parse("2026-08-03T10:01:00Z"),
+                85,
+                com.hansungteam.ersync.transport.domain.PupilResponse.NORMAL,
+                com.hansungteam.ersync.transport.domain.PupilResponse.SLUGGISH,
+                "  고혈압  ",
+                "확인된 알레르기 없음",
+                "혈압약",
+                false
+        );
+        var request = withSupplemental(base, supplemental);
+        String payload = objectMapper.writeValueAsString(request);
+
+        String first = mockMvc.perform(post("/api/v1/transport-requests")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
+                        .header("Idempotency-Key", "supplemental-key-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        mockMvc.perform(post("/api/v1/transport-requests")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
+                        .header("Idempotency-Key", "supplemental-key-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transportRequestId")
+                        .value(objectMapper.readTree(first).get("transportRequestId").asText()));
+
+        assertThat(supplementalAssessmentRecordRepository.count()).isEqualTo(1);
+        assertThat(generalSupplementalAssessmentRepository.count()).isEqualTo(1);
+        var snapshot = currentPatientSnapshotRepository.findByTransportRequestPublicId(
+                objectMapper.readTree(first).get("transportRequestId").asText()
+        ).orElseThrow();
+        assertThat(snapshot.getLatestSupplementalAssessment().getAssessmentType().name()).isEqualTo("GENERAL");
+        assertThat(snapshot.getLatestSupplementalAssessment().getGeneralAssessment().getMedicalHistory())
+                .isEqualTo("고혈압");
+        assertThat(snapshot.getLatestSupplementalAssessment().getGeneralAssessment().getIsolationConcern())
+                .isFalse();
+
+        var changed = withSupplemental(base, new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                supplemental.assessedAt(),
+                supplemental.enteredAt(),
+                86,
+                supplemental.leftPupil(),
+                supplemental.rightPupil(),
+                supplemental.medicalHistory(),
+                supplemental.allergies(),
+                supplemental.medications(),
+                supplemental.isolationConcern()
+        ));
+        mockMvc.perform(post("/api/v1/transport-requests")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
+                        .header("Idempotency-Key", "supplemental-key-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changed)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COMMON_005"));
+
+        assertThat(supplementalAssessmentRecordRepository.count()).isEqualTo(1);
+        assertThat(generalSupplementalAssessmentRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void supplementalAssessmentBeanConstraintsUseCommonValidationError() throws Exception {
+        UserAccount paramedic = createParamedic("invalidsupplemental", true);
+        var base = ValidTransportRequestFixtures.request();
+        var invalid = withSupplemental(base,
+                new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                        Instant.parse("2026-08-03T10:00:00Z"),
+                        Instant.parse("2026-08-03T10:01:00Z"),
+                        1001,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ));
+
+        mockMvc.perform(post("/api/v1/transport-requests")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
+                        .header("Idempotency-Key", "invalid-supplemental-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalid)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        assertThat(transportRequestRepository.count()).isZero();
+        assertThat(supplementalAssessmentRecordRepository.count()).isZero();
     }
 
     @Test
@@ -486,6 +591,23 @@ class TransportRequestIntegrationTest {
             ));
         }
         return account;
+    }
+
+    private com.hansungteam.ersync.transport.api.CreateTransportRequestRequest withSupplemental(
+            com.hansungteam.ersync.transport.api.CreateTransportRequestRequest source,
+            com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput supplemental
+    ) {
+        return new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest(
+                source.assessmentProtocolVersion(),
+                source.origin(),
+                source.patient(),
+                source.incident(),
+                source.preKtas(),
+                source.consciousness(),
+                source.vitalSigns(),
+                source.treatments(),
+                supplemental
+        );
     }
 
     private String bearer(UserAccount account) {

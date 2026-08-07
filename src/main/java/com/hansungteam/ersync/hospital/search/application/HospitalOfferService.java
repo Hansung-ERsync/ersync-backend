@@ -34,6 +34,7 @@ import com.hansungteam.ersync.realtime.domain.RealtimeEventType;
 import com.hansungteam.ersync.realtime.domain.RealtimeOutboxEvent;
 import com.hansungteam.ersync.realtime.infrastructure.RealtimeOutboxEventRepository;
 import com.hansungteam.ersync.transport.application.IdempotencyKeyPolicy;
+import com.hansungteam.ersync.transport.application.SupplementalAssessmentResponseMapper;
 import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
@@ -76,6 +77,8 @@ public class HospitalOfferService {
     private final HospitalCommandFingerprint commandFingerprint;
     private final HospitalSearchService hospitalSearchService;
     private final HospitalOfferOutcomeResolver outcomeResolver;
+    private final HospitalClinicalAccessPolicy clinicalAccessPolicy;
+    private final SupplementalAssessmentResponseMapper supplementalAssessmentResponseMapper;
     private final AuditService auditService;
     private final Clock clock;
 
@@ -648,6 +651,9 @@ public class HospitalOfferService {
                 ),
                 new HospitalOfferDetailResponse.VitalSigns(vitalSigns.getMeasuredAt(), measurements),
                 treatments,
+                clinicalAccessPolicy.canRead(offer)
+                        ? supplementalAssessmentResponseMapper.map(snapshot)
+                        : null,
                 new HospitalOfferDetailResponse.Requester(
                         offer.getTransportRequest().getOrganization().getName(),
                         visibleHospitalContact(offer)

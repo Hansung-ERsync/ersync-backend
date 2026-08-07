@@ -6,6 +6,7 @@ import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.domain.TransportCancellationReason;
+import com.hansungteam.ersync.transport.api.SupplementalAssessmentResponse;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -29,6 +30,7 @@ public record HospitalOfferDetailResponse(
         Consciousness consciousness,
         VitalSigns vitalSigns,
         List<Treatment> treatments,
+        SupplementalAssessmentResponse supplementalAssessment,
         Requester requester,
         Route route,
         Timing timing,

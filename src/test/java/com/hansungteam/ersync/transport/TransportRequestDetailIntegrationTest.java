@@ -98,6 +98,7 @@ class TransportRequestDetailIntegrationTest {
                 .andExpect(jsonPath("$.latestSnapshot.vitalSigns.measurements.length()").value(5))
                 .andExpect(jsonPath("$.latestSnapshot.treatments[0].type").value("NONE"))
                 .andExpect(jsonPath("$.latestSnapshot.lastClinicalUpdateAt").exists())
+                .andExpect(jsonPath("$.supplementalAssessment").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").exists())
                 .andExpect(jsonPath("$.serverNow").exists())
                 .andExpect(jsonPath("$.callbackContact").doesNotExist())
@@ -123,6 +124,51 @@ class TransportRequestDetailIntegrationTest {
         entityManager.clear();
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow().getUpdatedAt())
                 .isEqualTo(requestUpdatedAt);
+    }
+
+    @Test
+    void ownerRestoresStructuredSupplementalAssessmentAndItsThreeTimes() throws Exception {
+        UserAccount owner = createParamedic("supplementaldetailowner");
+        var base = ValidTransportRequestFixtures.request();
+        var supplemental = new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                Instant.parse("2026-08-03T10:00:00Z"),
+                Instant.parse("2026-08-03T10:01:00Z"),
+                85,
+                com.hansungteam.ersync.transport.domain.PupilResponse.NORMAL,
+                com.hansungteam.ersync.transport.domain.PupilResponse.SLUGGISH,
+                "고혈압",
+                "확인된 알레르기 없음",
+                "혈압약",
+                false
+        );
+        var request = new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest(
+                base.assessmentProtocolVersion(), base.origin(), base.patient(), base.incident(),
+                base.preKtas(), base.consciousness(), base.vitalSigns(), base.treatments(), supplemental
+        );
+        String requestId = createRequest(owner, "supplemental-detail-key", request);
+
+        mockMvc.perform(get("/api/v1/transport-requests/{requestId}", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.supplementalAssessment.assessedAt")
+                        .value(supplemental.assessedAt().toString()))
+                .andExpect(jsonPath("$.supplementalAssessment.enteredAt")
+                        .value(supplemental.enteredAt().toString()))
+                .andExpect(jsonPath("$.supplementalAssessment.serverReceivedAt").exists())
+                .andExpect(jsonPath("$.supplementalAssessment.glucoseMgDl").value(85))
+                .andExpect(jsonPath("$.supplementalAssessment.leftPupil").value("NORMAL"))
+                .andExpect(jsonPath("$.supplementalAssessment.rightPupil").value("SLUGGISH"))
+                .andExpect(jsonPath("$.supplementalAssessment.medicalHistory").value("고혈압"))
+                .andExpect(jsonPath("$.supplementalAssessment.isolationConcern").value(false))
+                .andExpect(jsonPath("$.supplementalAssessment.id").doesNotExist())
+                .andExpect(jsonPath("$.supplementalAssessment.createdByAccountId").doesNotExist());
+
+        mockMvc.perform(get(
+                                "/api/v1/transport-requests/{requestId}/clinical-timeline", requestId
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.supplementalAssessment").doesNotExist());
     }
 
     @Test
@@ -322,11 +368,19 @@ class TransportRequestDetailIntegrationTest {
     }
 
     private String createRequest(UserAccount owner, String key) throws Exception {
+        return createRequest(owner, key, ValidTransportRequestFixtures.request());
+    }
+
+    private String createRequest(
+            UserAccount owner,
+            String key,
+            com.hansungteam.ersync.transport.api.CreateTransportRequestRequest request
+    ) throws Exception {
         String body = mockMvc.perform(post("/api/v1/transport-requests")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner))
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(ValidTransportRequestFixtures.request())))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).get("transportRequestId").asText();

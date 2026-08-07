@@ -152,6 +152,96 @@ class HospitalSearchApiIntegrationTest {
     }
 
     @Test
+    void hospitalReadsSupplementalAssessmentOnlyWhileClinicalAccessRemains() throws Exception {
+        UserAccount paramedic = createParamedic("supplementalhospitalmedic");
+        UserAccount destinationHospital = createHospital("supplementaldestination", "37.6021000");
+        UserAccount rejectedHospital = createHospital("supplementalrejected", "37.6121000");
+        var base = ValidTransportRequestFixtures.request();
+        var request = new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest(
+                base.assessmentProtocolVersion(),
+                base.origin(),
+                base.patient(),
+                base.incident(),
+                base.preKtas(),
+                base.consciousness(),
+                base.vitalSigns(),
+                base.treatments(),
+                new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                        Instant.parse("2026-08-03T10:00:00Z"),
+                        Instant.parse("2026-08-03T10:01:00Z"),
+                        85,
+                        com.hansungteam.ersync.transport.domain.PupilResponse.NORMAL,
+                        com.hansungteam.ersync.transport.domain.PupilResponse.NORMAL,
+                        "고혈압",
+                        null,
+                        null,
+                        true
+                )
+        );
+        String requestId = createAndSearch(paramedic, "supplemental-hospital-request", request);
+        var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var destinationOffer = offers.stream()
+                .filter(candidate -> candidate.getHospitalProfile().getAccount().getId()
+                        .equals(destinationHospital.getId()))
+                .findFirst()
+                .orElseThrow();
+        var rejectedOffer = offers.stream()
+                .filter(candidate -> candidate.getHospitalProfile().getAccount().getId()
+                        .equals(rejectedHospital.getId()))
+                .findFirst()
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", destinationOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(destinationHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.supplementalAssessment.glucoseMgDl").value(85))
+                .andExpect(jsonPath("$.supplementalAssessment.medicalHistory").value("고혈압"))
+                .andExpect(jsonPath("$.supplementalAssessment.isolationConcern").value(true));
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(destinationHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].supplementalAssessment").doesNotExist());
+
+        mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/reject", rejectedOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital))
+                        .header("Idempotency-Key", "supplemental-reject-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason": "ER_GENERAL_BED_SHORTAGE"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", rejectedOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.supplementalAssessment").doesNotExist());
+
+        hospitalOfferService.accept(
+                new AuthenticatedAccount(
+                        destinationHospital.getPublicId(),
+                        destinationHospital.getOrganization().getPublicId(),
+                        UserRole.HOSPITAL_STAFF
+                ),
+                destinationOffer.getPublicId(),
+                "supplemental-destination-accept"
+        );
+        destinationService.select(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "supplemental-destination-select",
+                destinationOffer.getPublicId()
+        );
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", destinationOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(destinationHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.supplementalAssessment.glucoseMgDl").value(85));
+    }
+
+    @Test
     void finalRejectionExhaustsRequestAndParamedicRetryIsIdempotent() throws Exception {
         UserAccount paramedic = createParamedic("apimedic2");
         UserAccount hospital = createHospital("apihospital3", "37.6021000");
@@ -462,6 +552,14 @@ class HospitalSearchApiIntegrationTest {
     }
 
     private String createAndSearch(UserAccount paramedic, String idempotencyKey) {
+        return createAndSearch(paramedic, idempotencyKey, ValidTransportRequestFixtures.request());
+    }
+
+    private String createAndSearch(
+            UserAccount paramedic,
+            String idempotencyKey,
+            com.hansungteam.ersync.transport.api.CreateTransportRequestRequest request
+    ) {
         var creation = transportRequestService.create(
                 new AuthenticatedAccount(
                         paramedic.getPublicId(),
@@ -469,7 +567,7 @@ class HospitalSearchApiIntegrationTest {
                         UserRole.PARAMEDIC
                 ),
                 idempotencyKey,
-                ValidTransportRequestFixtures.request()
+                request
         );
         var attempt = attemptRepository.findByTransportRequestPublicIdAndAttemptNumber(
                 creation.response().transportRequestId(),

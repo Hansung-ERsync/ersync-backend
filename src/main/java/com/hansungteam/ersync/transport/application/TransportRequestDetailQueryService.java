@@ -32,6 +32,7 @@ public class TransportRequestDetailQueryService {
     private final TransportRequestRepository requestRepository;
     private final CurrentPatientSnapshotRepository snapshotRepository;
     private final ClinicalSnapshotResponseMapper snapshotResponseMapper;
+    private final SupplementalAssessmentResponseMapper supplementalAssessmentResponseMapper;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -96,6 +97,7 @@ public class TransportRequestDetailQueryService {
                         incident.getOnsetAt()
                 ),
                 snapshotResponseMapper.latest(snapshot),
+                supplementalAssessmentResponseMapper.map(snapshot),
                 request.getCreatedAt(),
                 clock.instant()
         );
