@@ -20,6 +20,8 @@ public interface InvitationCodeRepository
 
     Optional<InvitationCode> findByPublicId(String publicId);
 
+    boolean existsByCodeDigest(byte[] codeDigest);
+
     @EntityGraph(attributePaths = "organization")
     @Query("select invitation from InvitationCode invitation where invitation.codeDigest = :digest")
     Optional<InvitationCode> findByCodeDigest(@Param("digest") byte[] digest);

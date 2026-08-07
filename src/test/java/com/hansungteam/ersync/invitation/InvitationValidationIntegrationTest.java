@@ -4,6 +4,7 @@ import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
 import com.hansungteam.ersync.audit.domain.AuditAction;
 import com.hansungteam.ersync.audit.infrastructure.AuditEventRepository;
+import com.hansungteam.ersync.global.crypto.SecretDigester;
 import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.invitation.api.InvitationExpiryOption;
 import com.hansungteam.ersync.invitation.api.IssueInvitationRequest;
@@ -24,6 +25,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -41,6 +44,7 @@ class InvitationValidationIntegrationTest {
     @Autowired private InvitationCodeRepository invitationCodeRepository;
     @Autowired private AuditEventRepository auditEventRepository;
     @Autowired private InvitationService invitationService;
+    @Autowired private SecretDigester secretDigester;
 
     private UserAccount admin;
     private Organization emsUnit;
@@ -63,7 +67,7 @@ class InvitationValidationIntegrationTest {
 
         mockMvc.perform(post("/api/v1/auth/invitations/validate")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(request(code)))
+                        .content(request("  " + code + "  ")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.organizationId").value(emsUnit.getPublicId()))
                 .andExpect(jsonPath("$.organizationName").value(emsUnit.getName()))
@@ -85,13 +89,32 @@ class InvitationValidationIntegrationTest {
 
     @Test
     void caseChangedCodeIsInvalid() throws Exception {
-        String code = issueCode();
+        String code = "Ab12_-Z9";
+        storeAvailableCode(code);
 
         mockMvc.perform(post("/api/v1/auth/invitations/validate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(changeLetterCase(code))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVITATION_001"));
+    }
+
+    @Test
+    void legacyLongCodeRemainsValidWithoutBeingConsumed() throws Exception {
+        String code = secretDigester.generate().plainText();
+        assertThat(code).matches("[A-Za-z0-9_-]{43}");
+        storeAvailableCode(code);
+
+        mockMvc.perform(post("/api/v1/auth/invitations/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request(code)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.organizationName").value(emsUnit.getName()))
+                .andExpect(jsonPath("$.role").value("PARAMEDIC"));
+
+        InvitationCode stored = invitationCodeRepository.findAll().getFirst();
+        assertThat(stored.getStatus()).isEqualTo(InvitationStatus.AVAILABLE);
+        assertThat(stored.getUsedByAccount()).isNull();
     }
 
     @Test
@@ -128,7 +151,7 @@ class InvitationValidationIntegrationTest {
     }
 
     private String issueCode() {
-        return invitationService.issue(
+        String code = invitationService.issue(
                         admin.getPublicId(),
                         new IssueInvitationRequest(
                                 emsUnit.getPublicId(),
@@ -138,6 +161,18 @@ class InvitationValidationIntegrationTest {
                         )
                 )
                 .code();
+        assertThat(code).matches("[A-Za-z0-9_-]{8}");
+        return code;
+    }
+
+    private void storeAvailableCode(String code) {
+        invitationCodeRepository.save(InvitationCode.issue(
+                emsUnit,
+                UserRole.PARAMEDIC,
+                secretDigester.digest(code),
+                Instant.now().plusSeconds(3600),
+                admin
+        ));
     }
 
     private void assertCodeError(String code, String errorCode, int httpStatus) throws Exception {

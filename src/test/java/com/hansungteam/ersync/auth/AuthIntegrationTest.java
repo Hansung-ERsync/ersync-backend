@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -80,6 +81,7 @@ class AuthIntegrationTest {
         JsonNode loginJson = objectMapper.readTree(loginBody);
         String accessToken = loginJson.get("accessToken").asText();
         String refreshToken = loginJson.get("refreshToken").asText();
+        assertThat(refreshToken).matches("[A-Za-z0-9_-]{43}");
 
         mockMvc.perform(get("/api/v1/admin/organizations")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
@@ -102,7 +104,9 @@ class AuthIntegrationTest {
         String replacementRefreshToken = objectMapper.readTree(refreshBody)
                 .get("refreshToken")
                 .asText();
-        org.assertj.core.api.Assertions.assertThat(replacementRefreshToken).isNotEqualTo(refreshToken);
+        assertThat(replacementRefreshToken)
+                .matches("[A-Za-z0-9_-]{43}")
+                .isNotEqualTo(refreshToken);
 
         mockMvc.perform(post("/api/v1/auth/tokens/refresh")
                         .contentType(MediaType.APPLICATION_JSON)

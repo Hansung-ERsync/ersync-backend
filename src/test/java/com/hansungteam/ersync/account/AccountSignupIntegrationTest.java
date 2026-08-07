@@ -7,12 +7,14 @@ import com.hansungteam.ersync.account.api.ParamedicSignupRequest;
 import com.hansungteam.ersync.account.application.AccountSignupService;
 import com.hansungteam.ersync.audit.domain.AuditAction;
 import com.hansungteam.ersync.audit.infrastructure.AuditEventRepository;
+import com.hansungteam.ersync.global.crypto.SecretDigester;
 import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.invitation.api.InvitationExpiryOption;
 import com.hansungteam.ersync.invitation.api.IssueInvitationRequest;
 import com.hansungteam.ersync.invitation.application.InvitationService;
+import com.hansungteam.ersync.invitation.domain.InvitationCode;
 import com.hansungteam.ersync.invitation.domain.InvitationStatus;
 import com.hansungteam.ersync.invitation.infrastructure.InvitationCodeRepository;
 import com.hansungteam.ersync.organization.domain.Organization;
@@ -32,6 +34,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -81,6 +85,9 @@ class AccountSignupIntegrationTest {
 
     @Autowired
     private AccountSignupService accountSignupService;
+
+    @Autowired
+    private SecretDigester secretDigester;
 
     private UserAccount admin;
 
@@ -205,6 +212,45 @@ class AccountSignupIntegrationTest {
                 ConsentType.HOSPITAL_PROVISION,
                 "HOSPITAL_PROVISION_DEV_1.0"
         )).isTrue();
+    }
+
+    @Test
+    void legacyLongInvitationStillCreatesParamedicAccount() throws Exception {
+        Organization emsUnit = organizationRepository.save(Organization.create(
+                "기존 코드 호환 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        String legacyCode = secretDigester.generate().plainText();
+        assertThat(legacyCode).matches("[A-Za-z0-9_-]{43}");
+        InvitationCode invitation = invitationCodeRepository.save(InvitationCode.issue(
+                emsUnit,
+                UserRole.PARAMEDIC,
+                secretDigester.digest(legacyCode),
+                Instant.now().plusSeconds(3600),
+                admin
+        ));
+
+        mockMvc.perform(post("/api/v1/auth/signups/paramedic")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "invitationCode": "%s",
+                                  "displayName": "기존 코드 대원",
+                                  "loginId": "legacymedic",
+                                  "password": "safe-password",
+                                  "contact": "010-9876-5432",
+                                  "collectionUseConsentAccepted": true,
+                                  "collectionUseConsentVersion": "COLLECTION_USE_DEV_1.0",
+                                  "hospitalProvisionConsentAccepted": true,
+                                  "hospitalProvisionConsentVersion": "HOSPITAL_PROVISION_DEV_1.0"
+                                }
+                                """.formatted(legacyCode)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.role").value("PARAMEDIC"))
+                .andExpect(jsonPath("$.organizationId").value(emsUnit.getPublicId()));
+
+        assertThat(userAccountRepository.existsByLoginIdAndRole("legacymedic", UserRole.PARAMEDIC)).isTrue();
+        assertThat(invitation.getStatus()).isEqualTo(InvitationStatus.USED);
     }
 
     @Test
