@@ -5,7 +5,6 @@ import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
 import com.hansungteam.ersync.audit.application.AuditService;
 import com.hansungteam.ersync.audit.domain.AuditAction;
 import com.hansungteam.ersync.global.crypto.GeneratedSecret;
-import com.hansungteam.ersync.global.crypto.SecretDigester;
 import com.hansungteam.ersync.global.exception.CustomException;
 import com.hansungteam.ersync.global.exception.ErrorCode;
 import com.hansungteam.ersync.global.security.UserRole;
@@ -41,7 +40,7 @@ public class InvitationService {
     private final InvitationCodeRepository invitationCodeRepository;
     private final OrganizationRepository organizationRepository;
     private final UserAccountRepository userAccountRepository;
-    private final SecretDigester secretDigester;
+    private final InvitationCodeGenerator invitationCodeGenerator;
     private final AuditService auditService;
     private final Clock clock;
 
@@ -55,7 +54,7 @@ public class InvitationService {
 
         Instant now = clock.instant();
         Instant expiresAt = resolveExpiresAt(request, now);
-        GeneratedSecret generated = secretDigester.generate();
+        GeneratedSecret generated = invitationCodeGenerator.generateUnique();
         InvitationCode invitation = invitationCodeRepository.save(InvitationCode.issue(
                 organization,
                 request.role(),

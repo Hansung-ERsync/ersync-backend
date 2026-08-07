@@ -1,7 +1,10 @@
 package com.hansungteam.ersync.global;
 
 import com.hansungteam.ersync.account.domain.UserAccount;
+import com.hansungteam.ersync.account.api.ParamedicSignupRequest;
+import com.hansungteam.ersync.account.application.AccountSignupService;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
+import com.hansungteam.ersync.global.crypto.SecretDigester;
 import com.hansungteam.ersync.global.security.AuthenticatedAccount;
 import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.api.HospitalReceivingStatusResponse;
@@ -13,6 +16,11 @@ import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
+import com.hansungteam.ersync.invitation.api.InvitationExpiryOption;
+import com.hansungteam.ersync.invitation.api.IssueInvitationRequest;
+import com.hansungteam.ersync.invitation.application.InvitationService;
+import com.hansungteam.ersync.invitation.domain.InvitationStatus;
+import com.hansungteam.ersync.invitation.infrastructure.InvitationCodeRepository;
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
@@ -82,6 +90,10 @@ class MySqlDatabaseIntegrationTest {
 
     @Autowired private OrganizationRepository organizationRepository;
     @Autowired private UserAccountRepository userAccountRepository;
+    @Autowired private AccountSignupService accountSignupService;
+    @Autowired private SecretDigester secretDigester;
+    @Autowired private InvitationService invitationService;
+    @Autowired private InvitationCodeRepository invitationCodeRepository;
     @Autowired private HospitalProfileRepository hospitalProfileRepository;
     @Autowired private HospitalReceivingService hospitalReceivingService;
     @Autowired private ParamedicProfileRepository paramedicProfileRepository;
@@ -170,6 +182,53 @@ class MySqlDatabaseIntegrationTest {
         mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    @Transactional
+    void eightCharacterInvitationPersistsAndIsConsumedOnMySql84() {
+        UserAccount admin = userAccountRepository.save(UserAccount.createSuperAdmin(
+                "mysqlinviteadmin",
+                "encoded-password"
+        ));
+        Organization emsUnit = organizationRepository.save(Organization.create(
+                "MySQL 8자리 코드 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+
+        var issued = invitationService.issue(
+                admin.getPublicId(),
+                new IssueInvitationRequest(
+                        emsUnit.getPublicId(),
+                        UserRole.PARAMEDIC,
+                        InvitationExpiryOption.THREE_DAYS,
+                        null
+                )
+        );
+        assertThat(issued.code()).matches("[A-Za-z0-9_-]{8}");
+        assertThat(invitationCodeRepository.existsByCodeDigest(secretDigester.digest(issued.code()))).isTrue();
+
+        accountSignupService.signupParamedic(new ParamedicSignupRequest(
+                issued.code(),
+                "MySQL 코드 대원",
+                "mysqlinvitemedic",
+                "safe-password",
+                "010-0000-0014",
+                true,
+                "COLLECTION_USE_DEV_1.0",
+                true,
+                "HOSPITAL_PROVISION_DEV_1.0"
+        ));
+
+        assertThat(invitationCodeRepository.findByPublicId(issued.invitation().invitationCodeId()))
+                .get()
+                .extracting(invitation -> invitation.getStatus())
+                .isEqualTo(InvitationStatus.USED);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT OCTET_LENGTH(code_digest) FROM invitation_codes WHERE public_id = ?",
+                Integer.class,
+                issued.invitation().invitationCodeId()
+        )).isEqualTo(32);
     }
 
     @Test

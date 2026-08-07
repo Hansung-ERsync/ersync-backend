@@ -99,6 +99,7 @@ class AdminInvitationIntegrationTest {
         String plainText = json.get("code").asText();
         var saved = invitationCodeRepository.findAll().getFirst();
 
+        assertThat(plainText).matches("[A-Za-z0-9_-]{8}");
         assertThat(Arrays.equals(saved.getCodeDigest(), secretDigester.digest(plainText))).isTrue();
         assertThat(new String(saved.getCodeDigest(), StandardCharsets.UTF_8)).isNotEqualTo(plainText);
         assertThat(auditEventRepository.countByAction(AuditAction.INVITATION_ISSUED)).isEqualTo(1);
