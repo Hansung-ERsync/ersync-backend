@@ -16,7 +16,9 @@ public interface CurrentPatientSnapshotRepository extends JpaRepository<CurrentP
             "latestPreKtasAssessment",
             "latestConsciousnessAssessment",
             "latestVitalSignSet",
-            "currentTreatments"
+            "currentTreatments",
+            "latestSupplementalAssessment",
+            "latestSupplementalAssessment.generalAssessment"
     })
     Optional<CurrentPatientSnapshot> findByTransportRequestPublicId(String transportRequestId);
 }

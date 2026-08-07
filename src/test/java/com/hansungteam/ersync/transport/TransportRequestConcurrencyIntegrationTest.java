@@ -16,6 +16,8 @@ import com.hansungteam.ersync.privacy.infrastructure.ContactSharingConsentReposi
 import com.hansungteam.ersync.transport.application.TransportRequestCreationResult;
 import com.hansungteam.ersync.transport.application.TransportRequestService;
 import com.hansungteam.ersync.transport.infrastructure.CurrentPatientSnapshotRepository;
+import com.hansungteam.ersync.transport.infrastructure.GeneralSupplementalAssessmentRepository;
+import com.hansungteam.ersync.transport.infrastructure.SupplementalAssessmentRecordRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +47,8 @@ class TransportRequestConcurrencyIntegrationTest {
     @Autowired private ContactSharingConsentRepository consentRepository;
     @Autowired private TransportRequestRepository transportRequestRepository;
     @Autowired private CurrentPatientSnapshotRepository currentPatientSnapshotRepository;
+    @Autowired private SupplementalAssessmentRecordRepository supplementalAssessmentRecordRepository;
+    @Autowired private GeneralSupplementalAssessmentRepository generalSupplementalAssessmentRepository;
     @Autowired private AuditEventRepository auditEventRepository;
 
     @Test
@@ -70,17 +74,39 @@ class TransportRequestConcurrencyIntegrationTest {
                 organization.getPublicId(),
                 UserRole.PARAMEDIC
         );
+        var base = ValidTransportRequestFixtures.request();
+        var request = new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest(
+                base.assessmentProtocolVersion(),
+                base.origin(),
+                base.patient(),
+                base.incident(),
+                base.preKtas(),
+                base.consciousness(),
+                base.vitalSigns(),
+                base.treatments(),
+                new com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput(
+                        Instant.parse("2026-08-03T10:00:00Z"),
+                        Instant.parse("2026-08-03T10:01:00Z"),
+                        85,
+                        null,
+                        null,
+                        "고혈압",
+                        null,
+                        null,
+                        false
+                )
+        );
 
         List<TransportRequestCreationResult> results = runTogether(
                 () -> transportRequestService.create(
                         authenticated,
                         "parallel-request-key",
-                        ValidTransportRequestFixtures.request()
+                        request
                 ),
                 () -> transportRequestService.create(
                         authenticated,
                         "parallel-request-key",
-                        ValidTransportRequestFixtures.request()
+                        request
                 )
         );
 
@@ -90,6 +116,8 @@ class TransportRequestConcurrencyIntegrationTest {
                 .isEqualTo(results.get(1).response().transportRequestId());
         assertThat(transportRequestRepository.count()).isEqualTo(1);
         assertThat(currentPatientSnapshotRepository.count()).isEqualTo(1);
+        assertThat(supplementalAssessmentRecordRepository.count()).isEqualTo(1);
+        assertThat(generalSupplementalAssessmentRepository.count()).isEqualTo(1);
         assertThat(auditEventRepository.countByAction(AuditAction.TRANSPORT_REQUEST_CREATED)).isEqualTo(1);
     }
 

@@ -21,17 +21,21 @@ import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestResponse;
 import com.hansungteam.ersync.transport.domain.ConsciousnessAssessment;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
+import com.hansungteam.ersync.transport.domain.GeneralSupplementalAssessment;
 import com.hansungteam.ersync.transport.domain.IncidentAssessment;
 import com.hansungteam.ersync.transport.domain.PatientDemographics;
 import com.hansungteam.ersync.transport.domain.PreKtasAssessment;
+import com.hansungteam.ersync.transport.domain.SupplementalAssessmentRecord;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TreatmentEvent;
 import com.hansungteam.ersync.transport.domain.VitalSignSet;
 import com.hansungteam.ersync.transport.infrastructure.ConsciousnessAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.CurrentPatientSnapshotRepository;
+import com.hansungteam.ersync.transport.infrastructure.GeneralSupplementalAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.IncidentAssessmentRepository;
 import com.hansungteam.ersync.transport.infrastructure.PatientDemographicsRepository;
 import com.hansungteam.ersync.transport.infrastructure.PreKtasAssessmentRepository;
+import com.hansungteam.ersync.transport.infrastructure.SupplementalAssessmentRecordRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import com.hansungteam.ersync.transport.infrastructure.TreatmentEventRepository;
 import com.hansungteam.ersync.transport.infrastructure.VitalSignSetRepository;
@@ -63,6 +67,8 @@ public class TransportRequestService {
     private final ConsciousnessAssessmentRepository consciousnessAssessmentRepository;
     private final VitalSignSetRepository vitalSignSetRepository;
     private final TreatmentEventRepository treatmentEventRepository;
+    private final SupplementalAssessmentRecordRepository supplementalAssessmentRecordRepository;
+    private final GeneralSupplementalAssessmentRepository generalSupplementalAssessmentRepository;
     private final CurrentPatientSnapshotRepository currentPatientSnapshotRepository;
     private final HospitalSearchService hospitalSearchService;
     private final AuditService auditService;
@@ -115,6 +121,12 @@ public class TransportRequestService {
         );
         VitalSignSet vitalSigns = saveVitalSigns(transportRequest, account, request, receivedAt);
         List<TreatmentEvent> treatments = saveTreatments(transportRequest, account, request, receivedAt);
+        SupplementalAssessmentRecord supplementalAssessment = saveSupplementalAssessment(
+                transportRequest,
+                account,
+                request,
+                receivedAt
+        );
         saveSnapshot(
                 transportRequest,
                 demographics,
@@ -123,6 +135,7 @@ public class TransportRequestService {
                 consciousness,
                 vitalSigns,
                 treatments,
+                supplementalAssessment,
                 receivedAt
         );
         hospitalSearchService.initialize(transportRequest, receivedAt);
@@ -265,6 +278,40 @@ public class TransportRequestService {
                 .toList();
     }
 
+    private SupplementalAssessmentRecord saveSupplementalAssessment(
+            TransportRequest transportRequest,
+            UserAccount account,
+            CreateTransportRequestRequest request,
+            Instant receivedAt
+    ) {
+        var input = request.supplementalAssessment();
+        if (input == null) {
+            return null;
+        }
+
+        SupplementalAssessmentRecord record = supplementalAssessmentRecordRepository.save(
+                SupplementalAssessmentRecord.createGeneral(
+                        transportRequest,
+                        request.assessmentProtocolVersion(),
+                        input.assessedAt(),
+                        input.enteredAt(),
+                        receivedAt,
+                        account
+                )
+        );
+        generalSupplementalAssessmentRepository.save(GeneralSupplementalAssessment.create(
+                record,
+                input.glucoseMgDl(),
+                input.leftPupil(),
+                input.rightPupil(),
+                trimToNull(input.medicalHistory()),
+                trimToNull(input.allergies()),
+                trimToNull(input.medications()),
+                input.isolationConcern()
+        ));
+        return record;
+    }
+
     private void saveSnapshot(
             TransportRequest transportRequest,
             PatientDemographics demographics,
@@ -273,6 +320,7 @@ public class TransportRequestService {
             ConsciousnessAssessment consciousness,
             VitalSignSet vitalSigns,
             List<TreatmentEvent> treatments,
+            SupplementalAssessmentRecord supplementalAssessment,
             Instant receivedAt
     ) {
         currentPatientSnapshotRepository.save(CurrentPatientSnapshot.create(
@@ -283,6 +331,7 @@ public class TransportRequestService {
                 consciousness,
                 vitalSigns,
                 treatments,
+                supplementalAssessment,
                 transportRequest.getAssessmentProtocolVersion(),
                 receivedAt,
                 receivedAt

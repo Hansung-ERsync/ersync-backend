@@ -5,6 +5,7 @@ import com.hansungteam.ersync.global.exception.ErrorCode;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.IncidentInput;
 import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.PatientInput;
+import com.hansungteam.ersync.transport.api.CreateTransportRequestRequest.SupplementalAssessmentInput;
 import com.hansungteam.ersync.transport.domain.AgeStatus;
 import com.hansungteam.ersync.transport.domain.OccurrenceType;
 import com.hansungteam.ersync.transport.domain.OnsetTimeStatus;
@@ -31,6 +32,7 @@ public class AssessmentProtocolValidator {
         clinicalInputValidator.validateConsciousness(ClinicalInputMapper.from(request.consciousness()));
         clinicalInputValidator.validateVitalSigns(ClinicalInputMapper.from(request.vitalSigns()));
         clinicalInputValidator.validateTreatments(ClinicalInputMapper.from(request.treatments()), true);
+        validateSupplementalAssessment(request.supplementalAssessment());
     }
 
     private void validatePatient(PatientInput patient) {
@@ -54,6 +56,31 @@ public class AssessmentProtocolValidator {
         boolean knownOnset = incident.onsetTimeStatus() == OnsetTimeStatus.EXACT
                 || incident.onsetTimeStatus() == OnsetTimeStatus.ESTIMATED;
         require(knownOnset == (incident.onsetAt() != null));
+    }
+
+    private void validateSupplementalAssessment(SupplementalAssessmentInput supplemental) {
+        if (supplemental == null) {
+            return;
+        }
+
+        require(supplemental.assessedAt() != null && supplemental.enteredAt() != null);
+        require(!supplemental.assessedAt().isAfter(supplemental.enteredAt()));
+        require(supplemental.glucoseMgDl() == null
+                || (supplemental.glucoseMgDl() >= 0 && supplemental.glucoseMgDl() <= 1000));
+        require((supplemental.leftPupil() == null) == (supplemental.rightPupil() == null));
+        require(validOptionalText(supplemental.medicalHistory()));
+        require(validOptionalText(supplemental.allergies()));
+        require(validOptionalText(supplemental.medications()));
+        require(supplemental.glucoseMgDl() != null
+                || supplemental.leftPupil() != null
+                || hasText(supplemental.medicalHistory())
+                || hasText(supplemental.allergies())
+                || hasText(supplemental.medications())
+                || supplemental.isolationConcern() != null);
+    }
+
+    private boolean validOptionalText(String value) {
+        return value == null || (hasText(value) && value.trim().length() <= 120);
     }
 
     private boolean hasText(String value) {

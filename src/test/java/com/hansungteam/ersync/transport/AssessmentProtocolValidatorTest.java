@@ -9,6 +9,7 @@ import com.hansungteam.ersync.transport.domain.AgeStatus;
 import com.hansungteam.ersync.transport.domain.PreKtasClassificationStatus;
 import com.hansungteam.ersync.transport.domain.PreKtasExceptionReason;
 import com.hansungteam.ersync.transport.domain.PatientSex;
+import com.hansungteam.ersync.transport.domain.PupilResponse;
 import com.hansungteam.ersync.transport.domain.TreatmentAttemptResult;
 import com.hansungteam.ersync.transport.domain.TreatmentType;
 import com.hansungteam.ersync.transport.domain.VitalSignState;
@@ -17,6 +18,7 @@ import com.hansungteam.ersync.transport.domain.VitalSignUnavailableReason;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -37,6 +39,121 @@ class AssessmentProtocolValidatorTest {
     void completeDevelopmentAssessmentIsAccepted() {
         assertThatCode(() -> validator.validate(ValidTransportRequestFixtures.request()))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void completeSupplementalAssessmentIsAccepted() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+        var supplemental = supplemental(
+                85,
+                PupilResponse.NORMAL,
+                PupilResponse.SLUGGISH,
+                " 고혈압 ",
+                "확인된 알레르기 없음",
+                "혈압약",
+                false
+        );
+
+        assertThatCode(() -> validator.validate(copy(valid, supplemental)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void eachSupplementalAssessmentKindCanBeRecordedByItself() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+        List<CreateTransportRequestRequest.SupplementalAssessmentInput> individualInputs = List.of(
+                supplemental(85, null, null, null, null, null, null),
+                supplemental(null, PupilResponse.NORMAL, PupilResponse.UNASSESSABLE, null, null, null, null),
+                supplemental(null, null, null, "고혈압", null, null, null),
+                supplemental(null, null, null, null, "페니실린", null, null),
+                supplemental(null, null, null, null, null, "혈압약", null),
+                supplemental(null, null, null, null, null, null, false)
+        );
+
+        individualInputs.forEach(input -> assertThatCode(() -> validator.validate(copy(valid, input)))
+                .doesNotThrowAnyException());
+    }
+
+    @Test
+    void emptySupplementalAssessmentIsRejected() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+
+        assertThatThrownBy(() -> validator.validate(copy(valid, supplemental(
+                null, null, null, null, null, null, null
+        ))))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode.code")
+                .isEqualTo("COMMON_001");
+    }
+
+    @Test
+    void pupilsMustBeRecordedAsAPair() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+
+        assertThatThrownBy(() -> validator.validate(copy(valid, supplemental(
+                null, PupilResponse.NORMAL, null, null, null, null, null
+        ))))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode.code")
+                .isEqualTo("COMMON_001");
+    }
+
+    @Test
+    void blankSupplementalTextIsRejected() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+
+        assertThatThrownBy(() -> validator.validate(copy(valid, supplemental(
+                85, null, null, "   ", null, null, null
+        ))))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode.code")
+                .isEqualTo("COMMON_001");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 1001})
+    void outOfRangeSupplementalGlucoseIsRejected(int glucose) {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+
+        assertThatThrownBy(() -> validator.validate(copy(valid, supplemental(
+                glucose, null, null, null, null, null, null
+        ))))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode.code")
+                .isEqualTo("COMMON_001");
+    }
+
+    @Test
+    void oversizedSupplementalTextIsRejectedAfterTrim() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+
+        assertThatThrownBy(() -> validator.validate(copy(valid, supplemental(
+                null, null, null, "가".repeat(121), null, null, null
+        ))))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode.code")
+                .isEqualTo("COMMON_001");
+    }
+
+    @Test
+    void supplementalAssessmentCannotBeAfterItsInputTime() {
+        CreateTransportRequestRequest valid = ValidTransportRequestFixtures.request();
+        var supplemental = new CreateTransportRequestRequest.SupplementalAssessmentInput(
+                Instant.parse("2026-08-03T10:02:00Z"),
+                Instant.parse("2026-08-03T10:01:00Z"),
+                85,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> validator.validate(copy(valid, supplemental)))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode.code")
+                .isEqualTo("COMMON_001");
     }
 
     @Test
@@ -285,6 +402,45 @@ class AssessmentProtocolValidatorTest {
                 source.consciousness(),
                 vitalSigns,
                 treatments
+        );
+    }
+
+    private CreateTransportRequestRequest copy(
+            CreateTransportRequestRequest source,
+            CreateTransportRequestRequest.SupplementalAssessmentInput supplemental
+    ) {
+        return new CreateTransportRequestRequest(
+                source.assessmentProtocolVersion(),
+                source.origin(),
+                source.patient(),
+                source.incident(),
+                source.preKtas(),
+                source.consciousness(),
+                source.vitalSigns(),
+                source.treatments(),
+                supplemental
+        );
+    }
+
+    private CreateTransportRequestRequest.SupplementalAssessmentInput supplemental(
+            Integer glucoseMgDl,
+            PupilResponse leftPupil,
+            PupilResponse rightPupil,
+            String medicalHistory,
+            String allergies,
+            String medications,
+            Boolean isolationConcern
+    ) {
+        return new CreateTransportRequestRequest.SupplementalAssessmentInput(
+                Instant.parse("2026-08-03T10:00:00Z"),
+                Instant.parse("2026-08-03T10:01:00Z"),
+                glucoseMgDl,
+                leftPupil,
+                rightPupil,
+                medicalHistory,
+                allergies,
+                medications,
+                isolationConcern
         );
     }
 }
