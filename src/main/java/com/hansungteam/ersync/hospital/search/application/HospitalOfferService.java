@@ -34,8 +34,10 @@ import com.hansungteam.ersync.realtime.domain.RealtimeEventType;
 import com.hansungteam.ersync.realtime.domain.RealtimeOutboxEvent;
 import com.hansungteam.ersync.realtime.infrastructure.RealtimeOutboxEventRepository;
 import com.hansungteam.ersync.transport.application.IdempotencyKeyPolicy;
+import com.hansungteam.ersync.transport.application.ClinicalSnapshotReader;
+import com.hansungteam.ersync.transport.application.ClinicalSnapshotView;
+import com.hansungteam.ersync.transport.application.ClinicalSummaryView;
 import com.hansungteam.ersync.transport.application.SupplementalAssessmentResponseMapper;
-import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
@@ -53,9 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /** 병원 조직에 전달된 제안만 조회·응답하도록 조직 격리와 상태 전이를 담당합니다. */
@@ -72,8 +72,8 @@ public class HospitalOfferService {
     private final HospitalDispatchAttemptRepository attemptRepository;
     private final TransportRequestRepository transportRequestRepository;
     private final CurrentPatientSnapshotRepository snapshotRepository;
+    private final ClinicalSnapshotReader clinicalSnapshotReader;
     private final RealtimeOutboxEventRepository outboxEventRepository;
-    private final TransportDestinationCommandRepository destinationCommandRepository;
     private final HospitalCommandFingerprint commandFingerprint;
     private final HospitalSearchService hospitalSearchService;
     private final HospitalOfferOutcomeResolver outcomeResolver;
@@ -102,21 +102,11 @@ public class HospitalOfferService {
         Page<HospitalOffer> result = view == HospitalOfferView.ACTIVE
                 ? offerRepository.findActiveForHospital(profile.getId(), pageable)
                 : offerRepository.findHistoryForHospital(profile.getId(), pageable);
-        Map<Long, Instant> destinationChangedAtByRequestId = latestEffectiveDestinationChangedAt(
-                result.getContent()
-        );
         Instant now = clock.instant();
         List<HospitalOfferListResponse.Item> items = result.getContent().stream()
                 .map(offer -> isHiddenResponseHistory(offer)
-                        ? toMinimalHistoryItem(
-                                offer,
-                                destinationChangedAtByRequestId.get(offer.getTransportRequest().getId())
-                        )
-                        : toListItem(
-                                offer,
-                                requireSnapshot(offer),
-                                destinationChangedAtByRequestId.get(offer.getTransportRequest().getId())
-                        ))
+                        ? toMinimalHistoryItem(offer)
+                        : toListItem(offer, requireSnapshot(offer)))
                 .toList();
         return new HospitalOfferListResponse(
                 items,
@@ -256,6 +246,7 @@ public class HospitalOfferService {
         boolean hasRemainingAcceptedOffer = acceptedCount > 1;
         if (currentDestinationWithdrawn) {
             transportRequest.clearDestinationAfterWithdrawal(hasRemainingAcceptedOffer);
+            restoreLiveClinicalVisibility(transportRequest);
         } else if (currentDestination == null) {
             transportRequest.transitionAfterDestinationFreeWithdrawal(hasRemainingAcceptedOffer);
         }
@@ -483,14 +474,54 @@ public class HospitalOfferService {
                 .orElseThrow(() -> new CustomException(ErrorCode.TRANSPORT_REQUEST_NOT_FOUND));
     }
 
+    private ClinicalSnapshotView visibleSnapshot(HospitalOffer offer, CurrentPatientSnapshot snapshot) {
+        requireClinicalVisibilityState(offer);
+        return clinicalSnapshotReader.read(
+                snapshot,
+                offer.getClinicalVisibilityCutoffAt(),
+                offer.getFrozenLastClinicalUpdateAt()
+        );
+    }
+
+    private ClinicalSummaryView visibleSummary(HospitalOffer offer, CurrentPatientSnapshot snapshot) {
+        requireClinicalVisibilityState(offer);
+        return clinicalSnapshotReader.readSummary(
+                snapshot,
+                offer.getClinicalVisibilityCutoffAt(),
+                offer.getFrozenLastClinicalUpdateAt()
+        );
+    }
+
+    private void requireClinicalVisibilityState(HospitalOffer offer) {
+        TransportRequest request = offer.getTransportRequest();
+        boolean activeNonDestination = request.getCurrentDestinationOffer() != null
+                && !request.hasDestination(offer)
+                && (offer.getStatus() == HospitalOfferStatus.PENDING
+                        || offer.getStatus() == HospitalOfferStatus.ACCEPTED);
+        if (activeNonDestination
+                && (offer.getClinicalVisibilityCutoffAt() == null
+                        || offer.getFrozenLastClinicalUpdateAt() == null)) {
+            throw new CustomException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private void restoreLiveClinicalVisibility(TransportRequest request) {
+        offerRepository.findByTransportRequestIdAndStatusIn(
+                        request.getId(),
+                        Set.of(HospitalOfferStatus.PENDING, HospitalOfferStatus.ACCEPTED)
+                )
+                .forEach(HospitalOffer::allowLiveClinicalVisibility);
+    }
+
     private HospitalOfferListResponse.Item toListItem(
             HospitalOffer offer,
-            CurrentPatientSnapshot snapshot,
-            Instant currentDestinationChangedAt
+            CurrentPatientSnapshot snapshot
     ) {
-        var demographics = snapshot.getPatientDemographics();
-        var preKtas = snapshot.getLatestPreKtasAssessment();
-        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer, currentDestinationChangedAt);
+        ClinicalSummaryView visibleSummary = visibleSummary(offer, snapshot);
+        var demographics = visibleSummary.patientDemographics();
+        var preKtas = visibleSummary.latestPreKtasAssessment();
+        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer);
+        boolean routeVisible = isRouteVisible(offer);
         return new HospitalOfferListResponse.Item(
                 offer.getPublicId(),
                 offer.getTransportRequest().getPublicId(),
@@ -508,13 +539,13 @@ public class HospitalOfferService {
                 preKtas.getLevel(),
                 enumName(preKtas.getExceptionReason()),
                 offer.getStraightLineDistanceMeters(),
-                offer.getRouteEstimateStatus(),
-                offer.getRouteDistanceMeters(),
-                offer.getEtaSeconds(),
-                offer.getLastSuccessRouteDistanceMeters(),
-                offer.getLastSuccessEtaSeconds(),
-                offer.getLastSuccessEtaCalculatedAt(),
-                snapshot.getLastClinicalUpdateAt(),
+                routeVisible ? offer.getRouteEstimateStatus() : null,
+                routeVisible ? offer.getRouteDistanceMeters() : null,
+                routeVisible ? offer.getEtaSeconds() : null,
+                routeVisible ? offer.getLastSuccessRouteDistanceMeters() : null,
+                routeVisible ? offer.getLastSuccessEtaSeconds() : null,
+                routeVisible ? offer.getLastSuccessEtaCalculatedAt() : null,
+                visibleSummary.lastClinicalUpdateAt(),
                 offer.getOfferedAt(),
                 offer.getRespondedAt(),
                 offer.getWithdrawalReason(),
@@ -528,11 +559,8 @@ public class HospitalOfferService {
         );
     }
 
-    private HospitalOfferListResponse.Item toMinimalHistoryItem(
-            HospitalOffer offer,
-            Instant currentDestinationChangedAt
-    ) {
-        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer, currentDestinationChangedAt);
+    private HospitalOfferListResponse.Item toMinimalHistoryItem(HospitalOffer offer) {
+        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer);
         return new HospitalOfferListResponse.Item(
                 offer.getPublicId(),
                 offer.getTransportRequest().getPublicId(),
@@ -575,12 +603,14 @@ public class HospitalOfferService {
             CurrentPatientSnapshot snapshot,
             Instant now
     ) {
-        var demographics = snapshot.getPatientDemographics();
-        var incident = snapshot.getIncidentAssessment();
-        var preKtas = snapshot.getLatestPreKtasAssessment();
-        var consciousness = snapshot.getLatestConsciousnessAssessment();
-        var vitalSigns = snapshot.getLatestVitalSignSet();
-        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer, null);
+        ClinicalSnapshotView visibleSnapshot = visibleSnapshot(offer, snapshot);
+        var demographics = visibleSnapshot.patientDemographics();
+        var incident = visibleSnapshot.incidentAssessment();
+        var preKtas = visibleSnapshot.latestPreKtasAssessment();
+        var consciousness = visibleSnapshot.latestConsciousnessAssessment();
+        var vitalSigns = visibleSnapshot.latestVitalSignSet();
+        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer);
+        boolean routeVisible = isRouteVisible(offer);
         List<HospitalOfferDetailResponse.VitalSign> measurements = vitalSigns.getMeasurements().stream()
                 .map(measurement -> new HospitalOfferDetailResponse.VitalSign(
                         measurement.getMeasurementType().name(),
@@ -591,7 +621,7 @@ public class HospitalOfferService {
                         measurement.getUnavailableDetail()
                 ))
                 .toList();
-        List<HospitalOfferDetailResponse.Treatment> treatments = snapshot.getCurrentTreatments().stream()
+        List<HospitalOfferDetailResponse.Treatment> treatments = visibleSnapshot.currentTreatments().stream()
                 .map(treatment -> {
                     var details = treatment.getDetails();
                     return new HospitalOfferDetailResponse.Treatment(
@@ -652,7 +682,7 @@ public class HospitalOfferService {
                 new HospitalOfferDetailResponse.VitalSigns(vitalSigns.getMeasuredAt(), measurements),
                 treatments,
                 clinicalAccessPolicy.canRead(offer)
-                        ? supplementalAssessmentResponseMapper.map(snapshot)
+                        ? supplementalAssessmentResponseMapper.map(visibleSnapshot)
                         : null,
                 new HospitalOfferDetailResponse.Requester(
                         offer.getTransportRequest().getOrganization().getName(),
@@ -660,18 +690,18 @@ public class HospitalOfferService {
                 ),
                 new HospitalOfferDetailResponse.Route(
                         offer.getStraightLineDistanceMeters(),
-                        offer.getRouteEstimateStatus(),
-                        offer.getRouteDistanceMeters(),
-                        offer.getEtaSeconds(),
-                        offer.getEtaCalculatedAt(),
-                        offer.getLastSuccessRouteDistanceMeters(),
-                        offer.getLastSuccessEtaSeconds(),
-                        offer.getLastSuccessEtaCalculatedAt()
+                        routeVisible ? offer.getRouteEstimateStatus() : null,
+                        routeVisible ? offer.getRouteDistanceMeters() : null,
+                        routeVisible ? offer.getEtaSeconds() : null,
+                        routeVisible ? offer.getEtaCalculatedAt() : null,
+                        routeVisible ? offer.getLastSuccessRouteDistanceMeters() : null,
+                        routeVisible ? offer.getLastSuccessEtaSeconds() : null,
+                        routeVisible ? offer.getLastSuccessEtaCalculatedAt() : null
                 ),
                 new HospitalOfferDetailResponse.Timing(
                         offer.getTransportRequest().getServerReceivedAt(),
                         offer.getOfferedAt(),
-                        snapshot.getLastClinicalUpdateAt()
+                        visibleSnapshot.lastClinicalUpdateAt()
                 ),
                 offer.getRejectionReason(),
                 offer.getRejectionDetail(),
@@ -688,42 +718,6 @@ public class HospitalOfferService {
         );
     }
 
-    private Map<Long, Instant> latestEffectiveDestinationChangedAt(List<HospitalOffer> offers) {
-        Map<Long, Long> currentDestinationIdByRequestId = new HashMap<>();
-        for (HospitalOffer offer : offers) {
-            TransportRequest request = offer.getTransportRequest();
-            if (request.getCurrentDestinationOffer() != null
-                    && request.getStatus() != TransportRequestStatus.COMPLETED
-                    && request.getStatus() != TransportRequestStatus.CANCELLED
-                    && !request.hasDestination(offer)
-                    && (offer.getStatus() == HospitalOfferStatus.PENDING
-                            || offer.getStatus() == HospitalOfferStatus.ACCEPTED)) {
-                currentDestinationIdByRequestId.put(
-                        request.getId(),
-                        request.getCurrentDestinationOffer().getId()
-                );
-            }
-        }
-        if (currentDestinationIdByRequestId.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<Long, Instant> changedAtByRequestId = new HashMap<>();
-        destinationCommandRepository.findLatestEffectiveDestinations(currentDestinationIdByRequestId.keySet())
-                .forEach(destination -> {
-                    Long currentDestinationId = currentDestinationIdByRequestId.get(
-                            destination.getTransportRequestId()
-                    );
-                    if (destination.getDestinationOfferId().equals(currentDestinationId)) {
-                        changedAtByRequestId.put(
-                                destination.getTransportRequestId(),
-                                destination.getOccurredAt()
-                        );
-                    }
-                });
-        return changedAtByRequestId;
-    }
-
     private boolean isHiddenResponseHistory(HospitalOffer offer) {
         if (offer.getTransportRequest().getStatus() == TransportRequestStatus.COMPLETED
                 || offer.getTransportRequest().getStatus() == TransportRequestStatus.CANCELLED) {
@@ -732,13 +726,12 @@ public class HospitalOfferService {
         if (offer.getStatus() == HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) {
             return true;
         }
-        if (offer.getStatus() == HospitalOfferStatus.PENDING
-                && offer.getTransportRequest().getCurrentDestinationOffer() != null) {
-            return true;
-        }
-        return offer.getStatus() == HospitalOfferStatus.ACCEPTED
-                && offer.getTransportRequest().getCurrentDestinationOffer() != null
-                && !offer.getTransportRequest().hasDestination(offer);
+        return false;
+    }
+
+    private boolean isRouteVisible(HospitalOffer offer) {
+        return offer.getTransportRequest().getCurrentDestinationOffer() == null
+                || offer.getTransportRequest().hasDestination(offer);
     }
 
     private boolean canWithdraw(HospitalOffer offer) {

@@ -6,7 +6,7 @@ import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import org.springframework.stereotype.Component;
 
-/** 병원에 현재 임상 원문을 공개할 수 있는지를 모든 조회 API에서 동일하게 판단합니다. */
+/** 병원에 현재 또는 동결된 임상 원문을 공개할 수 있는지를 동일하게 판단합니다. */
 @Component
 public class HospitalClinicalAccessPolicy {
 
@@ -16,10 +16,15 @@ public class HospitalClinicalAccessPolicy {
                 || request.getStatus() == TransportRequestStatus.CANCELLED) {
             return false;
         }
-        if (request.getCurrentDestinationOffer() != null) {
-            return offer.getStatus() == HospitalOfferStatus.ACCEPTED && request.hasDestination(offer);
-        }
-        return offer.getStatus() == HospitalOfferStatus.PENDING
+        boolean activeOffer = offer.getStatus() == HospitalOfferStatus.PENDING
                 || offer.getStatus() == HospitalOfferStatus.ACCEPTED;
+        if (!activeOffer) {
+            return false;
+        }
+        if (request.getCurrentDestinationOffer() == null || request.hasDestination(offer)) {
+            return true;
+        }
+        return offer.getClinicalVisibilityCutoffAt() != null
+                && offer.getFrozenLastClinicalUpdateAt() != null;
     }
 }

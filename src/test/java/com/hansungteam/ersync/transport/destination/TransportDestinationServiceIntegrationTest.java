@@ -93,6 +93,7 @@ class TransportDestinationServiceIntegrationTest {
         UserAccount paramedic = createParamedic("destinationmedic");
         UserAccount hospitalOne = createHospital("destinationhospital1", "37.6021000");
         UserAccount hospitalTwo = createHospital("destinationhospital2", "37.6121000");
+        UserAccount hospitalThree = createHospital("destinationhospital3", "37.6221000");
         String requestId = createAndSearch(paramedic);
         var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
         var offerOne = offers.stream()
@@ -100,6 +101,9 @@ class TransportDestinationServiceIntegrationTest {
                 .findFirst().orElseThrow();
         var offerTwo = offers.stream()
                 .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalTwo.getId()))
+                .findFirst().orElseThrow();
+        var offerThree = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalThree.getId()))
                 .findFirst().orElseThrow();
 
         offerService.accept(hospitalPrincipal(hospitalOne), offerOne.getPublicId(), "accept-destination-1");
@@ -111,12 +115,26 @@ class TransportDestinationServiceIntegrationTest {
         assertThat(selected.resultType()).isEqualTo(TransportDestinationResultType.SELECTED);
         assertThat(selected.transportRequestStatus()).isEqualTo(TransportRequestStatus.EN_ROUTE);
         assertThat(selected.previousDestinationOfferId()).isNull();
+        assertThat(offerRepository.findById(offerOne.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isNull();
+        Instant hospitalTwoFirstCutoff = offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt();
+        assertThat(hospitalTwoFirstCutoff).isNotNull();
+        Instant hospitalThreeFirstCutoff = offerRepository.findById(offerThree.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt();
+        assertThat(hospitalThreeFirstCutoff).isNotNull();
 
         var changed = destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "destination-key-2", offerTwo.getPublicId()
         );
         assertThat(changed.resultType()).isEqualTo(TransportDestinationResultType.CHANGED);
         assertThat(changed.previousDestinationOfferId()).isEqualTo(offerOne.getPublicId());
+        assertThat(offerRepository.findById(offerOne.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isNotNull();
+        assertThat(offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isNull();
+        assertThat(offerRepository.findById(offerThree.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isEqualTo(hospitalThreeFirstCutoff);
 
         var replay = destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "destination-key-2", offerTwo.getPublicId()
@@ -144,17 +162,22 @@ class TransportDestinationServiceIntegrationTest {
                 .isCloseTo(changed.changedAt(), within(1, ChronoUnit.MICROS));
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
-                        .queryParam("view", "HISTORY")
+                        .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(latestDestination.getOccurredAt().toString()));
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
 
         var changedBack = destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "destination-key-4", offerOne.getPublicId()
         );
         assertThat(changedBack.resultType()).isEqualTo(TransportDestinationResultType.CHANGED);
         assertThat(changedBack.previousDestinationOfferId()).isEqualTo(offerTwo.getPublicId());
+        assertThat(offerRepository.findById(offerOne.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isNull();
+        assertThat(offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isNotNull()
+                .isAfterOrEqualTo(hospitalTwoFirstCutoff);
         var changedBackDestinations = commandRepository.findLatestEffectiveDestinations(
                 Set.of(transportRequestId)
         );
@@ -164,12 +187,11 @@ class TransportDestinationServiceIntegrationTest {
         assertThat(changedBackDestination.getOccurredAt())
                 .isCloseTo(changedBack.changedAt(), within(1, ChronoUnit.MICROS));
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
-                        .queryParam("view", "HISTORY")
+                        .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt")
-                        .value(changedBackDestination.getOccurredAt().toString()));
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
@@ -222,6 +244,77 @@ class TransportDestinationServiceIntegrationTest {
     }
 
     @Test
+    void pendingHospitalRemainsActiveAndCanAcceptAfterAnotherDestinationIsSelected() throws Exception {
+        UserAccount paramedic = createParamedic("activependingmedic");
+        UserAccount destinationHospital = createHospital("activependinghospital1", "37.6021000");
+        UserAccount pendingHospital = createHospital("activependinghospital2", "37.6121000");
+        UserAccount rejectingHospital = createHospital("activependinghospital3", "37.6221000");
+        String requestId = createAndSearch(paramedic);
+        var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var destinationOffer = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(destinationHospital.getId()))
+                .findFirst().orElseThrow();
+        var pendingOffer = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(pendingHospital.getId()))
+                .findFirst().orElseThrow();
+        var rejectingOffer = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(rejectingHospital.getId()))
+                .findFirst().orElseThrow();
+
+        offerService.accept(
+                hospitalPrincipal(destinationHospital),
+                destinationOffer.getPublicId(),
+                "active-pending-destination-accept"
+        );
+        destinationService.select(
+                paramedicPrincipal(paramedic),
+                requestId,
+                "active-pending-destination-select",
+                destinationOffer.getPublicId()
+        );
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "ACTIVE")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("PENDING"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("AWAITING_RESPONSE"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
+
+        mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/accept", pendingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital))
+                        .header("Idempotency-Key", "active-pending-late-accept"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.transportRequestStatus").value("EN_ROUTE"));
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "ACTIVE")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
+
+        mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/reject", rejectingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectingHospital))
+                        .header("Idempotency-Key", "active-pending-late-reject")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"SPECIALIST_UNAVAILABLE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.offerStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.transportRequestStatus").value("EN_ROUTE"));
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(rejectingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("REJECTED"));
+    }
+
+    @Test
     void nonDestinationWithdrawalKeepsDestinationAndIsIdempotent() throws Exception {
         UserAccount paramedic = createParamedic("withdrawmedic");
         UserAccount hospitalOne = createHospital("withdrawhospital1", "37.6021000");
@@ -242,22 +335,24 @@ class TransportDestinationServiceIntegrationTest {
                         .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(0));
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false))
+                .andExpect(jsonPath("$.items[0].canWithdraw").value(true))
+                .andExpect(jsonPath("$.items[0].ageStatus").isNotEmpty())
+                .andExpect(jsonPath("$.items[0].routeEstimateStatus").doesNotExist());
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "HISTORY")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
-                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").exists())
-                .andExpect(jsonPath("$.items[0].canWithdraw").value(true))
-                .andExpect(jsonPath("$.items[0].ageStatus").doesNotExist())
-                .andExpect(jsonPath("$.items[0].routeEstimateStatus").doesNotExist());
+                .andExpect(jsonPath("$.items.length()").value(0));
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offerTwo.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.currentDestination").value(false))
+                .andExpect(jsonPath("$.route.status").doesNotExist());
 
         mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/withdraw-acceptance", offerTwo.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo))
@@ -344,6 +439,8 @@ class TransportDestinationServiceIntegrationTest {
         var stored = requestRepository.findByPublicId(requestId).orElseThrow();
         assertThat(stored.getCurrentDestinationOffer()).isNull();
         assertThat(stored.getStatus()).isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
+        assertThat(offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isNull();
 
         var recovery = attemptRepository
                 .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)

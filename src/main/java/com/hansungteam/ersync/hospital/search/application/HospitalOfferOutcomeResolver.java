@@ -13,10 +13,7 @@ import java.time.Instant;
 @Component
 public class HospitalOfferOutcomeResolver {
 
-    public HospitalOfferOutcomeResult resolve(
-            HospitalOffer offer,
-            Instant currentDestinationChangedAt
-    ) {
+    public HospitalOfferOutcomeResult resolve(HospitalOffer offer) {
         TransportRequest request = offer.getTransportRequest();
         return resolve(
                 request.getStatus(),
@@ -26,8 +23,7 @@ public class HospitalOfferOutcomeResolver {
                 offer.getWithdrawnAt(),
                 offer.getClosedAt(),
                 request.getCompletedAt(),
-                request.getCancelledAt(),
-                currentDestinationChangedAt
+                request.getCancelledAt()
         );
     }
 
@@ -39,8 +35,7 @@ public class HospitalOfferOutcomeResolver {
             Instant withdrawnAt,
             Instant closedAt,
             Instant completedAt,
-            Instant cancelledAt,
-            Instant currentDestinationChangedAt
+            Instant cancelledAt
     ) {
         if (requestStatus == TransportRequestStatus.COMPLETED && finalDestination) {
             return result(HospitalOutcome.HANDOFF_COMPLETED_HERE, completedAt, closedAt);
@@ -59,9 +54,6 @@ public class HospitalOfferOutcomeResolver {
         }
         if (requestStatus == TransportRequestStatus.CANCELLED) {
             return result(HospitalOutcome.TRANSPORT_CANCELLED, cancelledAt, closedAt);
-        }
-        if (!finalDestination && currentDestinationChangedAt != null) {
-            return result(HospitalOutcome.NOT_SELECTED, currentDestinationChangedAt);
         }
         if (offerStatus == HospitalOfferStatus.PENDING) {
             return result(HospitalOutcome.AWAITING_RESPONSE, (Instant) null);

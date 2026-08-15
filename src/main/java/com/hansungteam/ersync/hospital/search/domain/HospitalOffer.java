@@ -161,6 +161,12 @@ public class HospitalOffer {
     @Column(name = "offered_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant offeredAt;
 
+    @Column(name = "clinical_visibility_cutoff_at", columnDefinition = "datetime(6)")
+    private Instant clinicalVisibilityCutoffAt;
+
+    @Column(name = "frozen_last_clinical_update_at", columnDefinition = "datetime(6)")
+    private Instant frozenLastClinicalUpdateAt;
+
     @Column(name = "closed_at", columnDefinition = "datetime(6)")
     private Instant closedAt;
 
@@ -312,6 +318,23 @@ public class HospitalOffer {
             this.closedAt = closedAt;
             etaNextAttemptAt = null;
         }
+    }
+
+    /** 목적지 이후 새 임상정보가 노출되지 않도록 최초 공개 종료 시각을 고정합니다. */
+    public void freezeClinicalVisibility(Instant cutoffAt, Instant lastClinicalUpdateAt) {
+        if (clinicalVisibilityCutoffAt != null) {
+            return;
+        }
+        clinicalVisibilityCutoffAt = cutoffAt;
+        frozenLastClinicalUpdateAt = lastClinicalUpdateAt.isAfter(cutoffAt)
+                ? cutoffAt
+                : lastClinicalUpdateAt;
+    }
+
+    /** 목적지로 선택되거나 목적지가 해제된 활성 제안에 최신 임상정보 접근을 복원합니다. */
+    public void allowLiveClinicalVisibility() {
+        clinicalVisibilityCutoffAt = null;
+        frozenLastClinicalUpdateAt = null;
     }
 
     /** 외부 호출 전에 짧은 lease를 잡아 같은 ETA 작업의 동시 실행을 줄입니다. */

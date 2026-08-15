@@ -3,6 +3,7 @@ package com.hansungteam.ersync.transport.infrastructure;
 import com.hansungteam.ersync.transport.domain.TreatmentEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -10,4 +11,9 @@ import java.util.List;
 public interface TreatmentEventRepository extends JpaRepository<TreatmentEvent, Long> {
 
     List<TreatmentEvent> findByPublicIdIn(Collection<String> publicIds);
+
+    List<TreatmentEvent> findByTransportRequestIdAndServerReceivedAtLessThanEqualOrderByServerReceivedAtAscIdAsc(
+            Long transportRequestId,
+            Instant cutoffAt
+    );
 }

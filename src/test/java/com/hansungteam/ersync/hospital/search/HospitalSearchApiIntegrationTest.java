@@ -40,6 +40,7 @@ import com.hansungteam.ersync.transport.api.UpdateVitalSignsRequest;
 import com.hansungteam.ersync.transport.destination.application.TransportDestinationService;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
+import com.hansungteam.ersync.transport.infrastructure.ClinicalTimelineRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -77,6 +78,7 @@ class HospitalSearchApiIntegrationTest {
     @Autowired private HospitalOfferRepository offerRepository;
     @Autowired private HospitalOfferEventRepository offerEventRepository;
     @Autowired private TransportRequestRepository transportRequestRepository;
+    @Autowired private ClinicalTimelineRepository clinicalTimelineRepository;
     @Autowired private TransportRequestService transportRequestService;
     @Autowired private HospitalSearchService hospitalSearchService;
     @Autowired private HospitalOfferService hospitalOfferService;
@@ -412,6 +414,9 @@ class HospitalSearchApiIntegrationTest {
                 "timeline-destination-key",
                 offerOne.getPublicId()
         );
+        Instant nonDestinationCutoff = offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt();
+        assertThat(nonDestinationCutoff).isNotNull();
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerOne.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
@@ -419,8 +424,8 @@ class HospitalSearchApiIntegrationTest {
                 .andExpect(jsonPath("$.totalElements").value(5));
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerTwo.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(5));
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", offerOne.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
                 .andExpect(status().isOk())
@@ -430,6 +435,49 @@ class HospitalSearchApiIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+
+        var laterUpdate = new UpdateVitalSignsRequest(
+                initial.measuredAt().plusSeconds(120),
+                initial.enteredAt().plusSeconds(120),
+                initial.measurements().stream().map(measurement -> new UpdateVitalSignsRequest.VitalSignInput(
+                        measurement.type(), measurement.state(), measurement.primaryValue(),
+                        measurement.secondaryValue(), measurement.unavailableReason(),
+                        measurement.unavailableDetail()
+                )).toList()
+        );
+        var laterResult = clinicalUpdateService.addVitalSigns(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "timeline-clinical-key-after-destination",
+                laterUpdate
+        );
+        assertThat(laterResult.response().serverReceivedAt()).isAfter(nonDestinationCutoff);
+        assertThat(offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt()).isEqualTo(nonDestinationCutoff);
+        assertThat(clinicalTimelineRepository.count(
+                transportRequestRepository.findByPublicId(requestId).orElseThrow().getId(),
+                nonDestinationCutoff
+        )).isEqualTo(5);
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerOne.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(6))
+                .andExpect(jsonPath("$.latestSnapshot.vitalSigns.measuredAt")
+                        .value(laterUpdate.measuredAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offerTwo.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.latestSnapshot.vitalSigns.measuredAt")
+                        .value(update.measuredAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offerTwo.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vitalSigns.measuredAt").value(update.measuredAt().toString()))
+                .andExpect(jsonPath("$.route.status").doesNotExist());
 
         Instant routeNow = Instant.now().plusSeconds(1);
         var oldGeneration = routeEstimatePersistence.claim(

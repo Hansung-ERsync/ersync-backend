@@ -16,19 +16,17 @@ class HospitalOfferOutcomeResolverTest {
     private static final Instant CLOSED_AT = Instant.parse("2026-08-06T07:14:15Z");
     private static final Instant COMPLETED_AT = Instant.parse("2026-08-06T07:16:17Z");
     private static final Instant CANCELLED_AT = Instant.parse("2026-08-06T07:18:19Z");
-    private static final Instant DESTINATION_CHANGED_AT = Instant.parse("2026-08-06T07:20:21Z");
-
     private final HospitalOfferOutcomeResolver resolver = new HospitalOfferOutcomeResolver();
 
     @Test
-    void resolvesActivePendingAcceptedAndNotSelectedOffers() {
+    void resolvesActivePendingAndAcceptedOffersEvenAfterDestinationSelection() {
         assertOutcome(
-                facts(TransportRequestStatus.SEARCHING, HospitalOfferStatus.PENDING, false, null),
+                facts(TransportRequestStatus.SEARCHING, HospitalOfferStatus.PENDING, false),
                 HospitalOutcome.AWAITING_RESPONSE,
                 null
         );
         assertOutcome(
-                facts(TransportRequestStatus.ACCEPTED_AVAILABLE, HospitalOfferStatus.ACCEPTED, false, null),
+                facts(TransportRequestStatus.ACCEPTED_AVAILABLE, HospitalOfferStatus.ACCEPTED, false),
                 HospitalOutcome.ACCEPTED,
                 RESPONDED_AT
         );
@@ -36,28 +34,27 @@ class HospitalOfferOutcomeResolverTest {
                 facts(
                         TransportRequestStatus.EN_ROUTE,
                         HospitalOfferStatus.ACCEPTED,
-                        false,
-                        DESTINATION_CHANGED_AT
+                        false
                 ),
-                HospitalOutcome.NOT_SELECTED,
-                DESTINATION_CHANGED_AT
+                HospitalOutcome.ACCEPTED,
+                RESPONDED_AT
         );
     }
 
     @Test
     void preservesRejectedNoResponseAndWithdrawnResultsAfterRequestCompletion() {
         assertOutcome(
-                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.REJECTED, false, null),
+                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.REJECTED, false),
                 HospitalOutcome.REJECTED,
                 RESPONDED_AT
         );
         assertOutcome(
-                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.NO_RESPONSE, false, null),
+                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.NO_RESPONSE, false),
                 HospitalOutcome.NO_RESPONSE,
                 CLOSED_AT
         );
         assertOutcome(
-                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.ACCEPTANCE_WITHDRAWN, false, null),
+                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.ACCEPTANCE_WITHDRAWN, false),
                 HospitalOutcome.ACCEPTANCE_WITHDRAWN,
                 WITHDRAWN_AT
         );
@@ -66,17 +63,17 @@ class HospitalOfferOutcomeResolverTest {
     @Test
     void distinguishesCompletedDestinationFromOtherHospitalOffers() {
         assertOutcome(
-                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.ACCEPTED, true, null),
+                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.ACCEPTED, true),
                 HospitalOutcome.HANDOFF_COMPLETED_HERE,
                 COMPLETED_AT
         );
         assertOutcome(
-                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.ACCEPTED, false, null),
+                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.ACCEPTED, false),
                 HospitalOutcome.COMPLETED_ELSEWHERE,
                 COMPLETED_AT
         );
         assertOutcome(
-                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.PENDING, false, null),
+                facts(TransportRequestStatus.COMPLETED, HospitalOfferStatus.PENDING, false),
                 HospitalOutcome.COMPLETED_ELSEWHERE,
                 COMPLETED_AT
         );
@@ -85,12 +82,12 @@ class HospitalOfferOutcomeResolverTest {
     @Test
     void resolvesCancellationWithoutOverwritingEarlierHospitalDecision() {
         assertOutcome(
-                facts(TransportRequestStatus.CANCELLED, HospitalOfferStatus.ACCEPTED, false, null),
+                facts(TransportRequestStatus.CANCELLED, HospitalOfferStatus.ACCEPTED, false),
                 HospitalOutcome.TRANSPORT_CANCELLED,
                 CANCELLED_AT
         );
         assertOutcome(
-                facts(TransportRequestStatus.CANCELLED, HospitalOfferStatus.REJECTED, false, null),
+                facts(TransportRequestStatus.CANCELLED, HospitalOfferStatus.REJECTED, false),
                 HospitalOutcome.REJECTED,
                 RESPONDED_AT
         );
@@ -106,8 +103,7 @@ class HospitalOfferOutcomeResolverTest {
                 WITHDRAWN_AT,
                 CLOSED_AT,
                 null,
-                CANCELLED_AT,
-                null
+                CANCELLED_AT
         );
 
         assertOutcome(missingCompletedAt, HospitalOutcome.HANDOFF_COMPLETED_HERE, CLOSED_AT);
@@ -116,8 +112,7 @@ class HospitalOfferOutcomeResolverTest {
     private Facts facts(
             TransportRequestStatus requestStatus,
             HospitalOfferStatus offerStatus,
-            boolean finalDestination,
-            Instant currentDestinationChangedAt
+            boolean finalDestination
     ) {
         return new Facts(
                 requestStatus,
@@ -127,8 +122,7 @@ class HospitalOfferOutcomeResolverTest {
                 WITHDRAWN_AT,
                 CLOSED_AT,
                 COMPLETED_AT,
-                CANCELLED_AT,
-                currentDestinationChangedAt
+                CANCELLED_AT
         );
     }
 
@@ -145,8 +139,7 @@ class HospitalOfferOutcomeResolverTest {
                 facts.withdrawnAt(),
                 facts.closedAt(),
                 facts.completedAt(),
-                facts.cancelledAt(),
-                facts.currentDestinationChangedAt()
+                facts.cancelledAt()
         );
 
         assertThat(result.outcome()).isEqualTo(expectedOutcome);
@@ -161,8 +154,7 @@ class HospitalOfferOutcomeResolverTest {
             Instant withdrawnAt,
             Instant closedAt,
             Instant completedAt,
-            Instant cancelledAt,
-            Instant currentDestinationChangedAt
+            Instant cancelledAt
     ) {
     }
 }
