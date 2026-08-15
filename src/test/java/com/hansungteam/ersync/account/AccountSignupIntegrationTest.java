@@ -113,6 +113,7 @@ class AccountSignupIntegrationTest {
                                   "loginId": "hansung1",
                                   "password": "safe-password",
                                   "address": "서울특별시 성북구 삼선교로 16길",
+                                  "detailAddress": "  본관 1층 응급의료센터  ",
                                   "latitude": 37.5821000,
                                   "longitude": 127.0105000,
                                   "contact": "02-1234-5678",
@@ -136,6 +137,8 @@ class AccountSignupIntegrationTest {
         assertThat(account.getRole()).isEqualTo(UserRole.HOSPITAL_STAFF);
         assertThat(passwordEncoder.matches("safe-password", account.getPasswordHash())).isTrue();
         assertThat(profile.getReceivingStatus()).isEqualTo(ReceivingStatus.OFF);
+        assertThat(profile.getAddress()).isEqualTo("서울특별시 성북구 삼선교로 16길");
+        assertThat(profile.getDetailAddress()).isEqualTo("본관 1층 응급의료센터");
         assertThat(profile.getContact()).isEqualTo("02-1234-5678");
         assertThat(contactSharingConsentRepository.existsByAccountPublicIdAndPolicyVersion(
                 account.getPublicId(),
@@ -163,6 +166,77 @@ class AccountSignupIntegrationTest {
                                 """.formatted(code)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVITATION_003"));
+    }
+
+    @Test
+    void hospitalSignupStoresBlankDetailAddressAsNull() throws Exception {
+        Organization hospital = organizationRepository.save(Organization.create(
+                "상세주소 선택 병원",
+                OrganizationType.HOSPITAL
+        ));
+        String code = issue(hospital, UserRole.HOSPITAL_STAFF);
+
+        mockMvc.perform(post("/api/v1/auth/signups/hospital")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "invitationCode": "%s",
+                                  "organizationName": "상세주소 선택 병원",
+                                  "loginId": "blankdetail",
+                                  "password": "safe-password",
+                                  "address": "서울특별시 성북구 삼선교로16길 116",
+                                  "detailAddress": "   ",
+                                  "latitude": 37.5821000,
+                                  "longitude": 127.0105000,
+                                  "contact": "02-1234-5678",
+                                  "contactSharingConsentAccepted": true,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
+                                }
+                                """.formatted(code)))
+                .andExpect(status().isCreated());
+
+        UserAccount account = userAccountRepository.findByLoginIdAndRole(
+                "blankdetail",
+                UserRole.HOSPITAL_STAFF
+        ).orElseThrow();
+        assertThat(hospitalProfileRepository.findByAccountPublicId(account.getPublicId()))
+                .get()
+                .extracting(profile -> profile.getDetailAddress())
+                .isNull();
+    }
+
+    @Test
+    void hospitalSignupRejectsDetailAddressLongerThanTwoHundredCharacters() throws Exception {
+        Organization hospital = organizationRepository.save(Organization.create(
+                "상세주소 검증 병원",
+                OrganizationType.HOSPITAL
+        ));
+        String code = issue(hospital, UserRole.HOSPITAL_STAFF);
+
+        mockMvc.perform(post("/api/v1/auth/signups/hospital")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "invitationCode": "%s",
+                                  "organizationName": "상세주소 검증 병원",
+                                  "loginId": "longdetail",
+                                  "password": "safe-password",
+                                  "address": "서울특별시 성북구 삼선교로16길 116",
+                                  "detailAddress": "%s",
+                                  "latitude": 37.5821000,
+                                  "longitude": 127.0105000,
+                                  "contact": "02-1234-5678",
+                                  "contactSharingConsentAccepted": true,
+                                  "contactSharingConsentVersion": "CONTACT_SHARING_DEV_1.0"
+                                }
+                                """.formatted(code, "가".repeat(201))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("detailAddress"))
+                .andExpect(jsonPath("$.fieldErrors[0].code").value("Size"));
+
+        assertThat(invitationCodeRepository.findAll().getFirst().getStatus())
+                .isEqualTo(InvitationStatus.AVAILABLE);
     }
 
     @Test
@@ -283,6 +357,7 @@ class AccountSignupIntegrationTest {
                 "sharedmember",
                 "hospital-password",
                 "서울특별시 성북구",
+                null,
                 new java.math.BigDecimal("37.5821000"),
                 new java.math.BigDecimal("127.0105000"),
                 "02-1234-5678",

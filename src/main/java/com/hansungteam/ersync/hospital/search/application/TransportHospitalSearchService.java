@@ -105,11 +105,16 @@ public class TransportHospitalSearchService {
         boolean showContact = offer.getStatus() == HospitalOfferStatus.ACCEPTED
                 || (request.getStatus() == TransportRequestStatus.CANDIDATES_EXHAUSTED
                 && offer.getStatus() != HospitalOfferStatus.ACCEPTANCE_WITHDRAWN);
+        boolean showAcceptedLocation = offer.getStatus() == HospitalOfferStatus.ACCEPTED;
         return new TransportHospitalSearchResponse.Offer(
                 offer.getPublicId(),
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getHospitalNameSnapshot(),
                 showContact ? offer.getHospitalContactSnapshot() : null,
+                showAcceptedLocation ? offer.getHospitalAddressSnapshot() : null,
+                showAcceptedLocation ? offer.getHospitalDetailAddressSnapshot() : null,
+                showAcceptedLocation ? offer.getHospitalLatitudeSnapshot() : null,
+                showAcceptedLocation ? offer.getHospitalLongitudeSnapshot() : null,
                 offer.getStatus(),
                 request.hasDestination(offer),
                 offer.getStraightLineDistanceMeters(),

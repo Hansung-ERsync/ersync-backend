@@ -14,6 +14,7 @@ import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
 import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.RouteEstimate;
 import com.hansungteam.ersync.hospital.search.application.RouteEstimatePersistence;
+import com.hansungteam.ersync.hospital.search.api.TransportHospitalSearchResponse;
 import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
 import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
@@ -53,6 +54,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -87,6 +89,7 @@ class HospitalSearchApiIntegrationTest {
     @Autowired private AuditEventRepository auditEventRepository;
     @Autowired private RealtimeOutboxEventRepository outboxEventRepository;
     @Autowired private JwtTokenService jwtTokenService;
+    @Autowired private ObjectMapper objectMapper;
 
     @Test
     void hospitalReadsOnlyItsOfferAndTwoHospitalsCanAccept() throws Exception {
@@ -157,6 +160,106 @@ class HospitalSearchApiIntegrationTest {
         )).filteredOn(event -> event.getEventType().name().equals("ACCEPTED")).hasSize(2);
         assertThat(attemptRepository.findById(hospitalOneOffer.getDispatchAttempt().getId()).orElseThrow()
                 .getStatus()).isEqualTo(HospitalDispatchAttemptStatus.STOPPED_ON_ACCEPTANCE);
+    }
+
+    @Test
+    void paramedicReadsSnapshotAddressOnlyForAcceptedHospitals() throws Exception {
+        UserAccount paramedic = createParamedic("addressmedic");
+        UserAccount hospitalOne = createHospital(
+                "addresshospital1",
+                "서울특별시 성북구 첫번째로 1",
+                "본관 1층 응급의료센터",
+                "37.6021000"
+        );
+        UserAccount hospitalTwo = createHospital(
+                "addresshospital2",
+                "서울특별시 성북구 두번째로 2",
+                "별관 지하 1층 구급차 진입구",
+                "37.6121000"
+        );
+        String requestId = createAndSearch(paramedic, "address-search-request");
+        var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var offerOne = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalOne.getId()))
+                .findFirst()
+                .orElseThrow();
+        var offerTwo = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalTwo.getId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(offerOne.getHospitalAddressSnapshot()).isEqualTo("서울특별시 성북구 첫번째로 1");
+        assertThat(offerOne.getHospitalDetailAddressSnapshot()).isEqualTo("본관 1층 응급의료센터");
+        assertThat(offerOne.getHospitalLatitudeSnapshot()).isEqualByComparingTo("37.6021000");
+
+        var pending = readHospitalSearch(paramedic, requestId);
+        assertHospitalLocationHidden(findOffer(pending, offerOne.getPublicId()));
+        assertHospitalLocationHidden(findOffer(pending, offerTwo.getPublicId()));
+
+        hospitalOfferService.accept(
+                hospitalPrincipal(hospitalOne),
+                offerOne.getPublicId(),
+                "address-accept-one"
+        );
+        var oneAccepted = readHospitalSearch(paramedic, requestId);
+        assertHospitalLocation(
+                findOffer(oneAccepted, offerOne.getPublicId()),
+                "서울특별시 성북구 첫번째로 1",
+                "본관 1층 응급의료센터",
+                "37.6021000"
+        );
+        assertHospitalLocationHidden(findOffer(oneAccepted, offerTwo.getPublicId()));
+
+        hospitalOfferService.accept(
+                hospitalPrincipal(hospitalTwo),
+                offerTwo.getPublicId(),
+                "address-accept-two"
+        );
+        AuthenticatedAccount paramedicPrincipal = new AuthenticatedAccount(
+                paramedic.getPublicId(),
+                paramedic.getOrganization().getPublicId(),
+                UserRole.PARAMEDIC
+        );
+        destinationService.select(
+                paramedicPrincipal,
+                requestId,
+                "address-destination-one",
+                offerOne.getPublicId()
+        );
+        destinationService.select(
+                paramedicPrincipal,
+                requestId,
+                "address-destination-two",
+                offerTwo.getPublicId()
+        );
+
+        var changedDestination = readHospitalSearch(paramedic, requestId);
+        var selected = findOffer(changedDestination, offerTwo.getPublicId());
+        assertThat(selected.currentDestination()).isTrue();
+        assertHospitalLocation(
+                selected,
+                "서울특별시 성북구 두번째로 2",
+                "별관 지하 1층 구급차 진입구",
+                "37.6121000"
+        );
+
+        hospitalOfferService.withdrawAcceptance(
+                hospitalPrincipal(hospitalOne),
+                offerOne.getPublicId(),
+                "address-withdraw-one",
+                new WithdrawHospitalAcceptanceRequest(
+                        HospitalAcceptanceWithdrawalReason.BED_SHORTAGE,
+                        null
+                )
+        );
+        var afterWithdrawal = readHospitalSearch(paramedic, requestId);
+        assertHospitalLocationHidden(findOffer(afterWithdrawal, offerOne.getPublicId()));
+        assertHospitalLocation(
+                findOffer(afterWithdrawal, offerTwo.getPublicId()),
+                "서울특별시 성북구 두번째로 2",
+                "별관 지하 1층 구급차 진입구",
+                "37.6121000"
+        );
     }
 
     @Test
@@ -342,7 +445,11 @@ class HospitalSearchApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SEARCHING"))
                 .andExpect(jsonPath("$.exhaustionReason").doesNotExist())
-                .andExpect(jsonPath("$.offers[0].hospitalContact").doesNotExist());
+                .andExpect(jsonPath("$.offers[0].hospitalContact").doesNotExist())
+                .andExpect(jsonPath("$.offers[0].hospitalAddress").doesNotExist())
+                .andExpect(jsonPath("$.offers[0].hospitalDetailAddress").doesNotExist())
+                .andExpect(jsonPath("$.offers[0].hospitalLatitude").doesNotExist())
+                .andExpect(jsonPath("$.offers[0].hospitalLongitude").doesNotExist());
 
         mockMvc.perform(post("/api/v1/transport-requests/{requestId}/dispatch-attempts", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
@@ -833,6 +940,15 @@ class HospitalSearchApiIntegrationTest {
     }
 
     private UserAccount createHospital(String loginId, String latitude) {
+        return createHospital(loginId, "서울특별시 테스트 주소", null, latitude);
+    }
+
+    private UserAccount createHospital(
+            String loginId,
+            String address,
+            String detailAddress,
+            String latitude
+    ) {
         Organization organization = organizationRepository.save(Organization.create(
                 loginId + " 병원",
                 OrganizationType.HOSPITAL
@@ -846,7 +962,8 @@ class HospitalSearchApiIntegrationTest {
         HospitalProfile profile = HospitalProfile.create(
                 organization,
                 account,
-                "서울특별시 테스트 주소",
+                address,
+                detailAddress,
                 new BigDecimal(latitude),
                 new BigDecimal("127.0105000"),
                 "02-0000-0000"
@@ -854,6 +971,56 @@ class HospitalSearchApiIntegrationTest {
         profile.changeReceivingStatus(ReceivingStatus.ON);
         hospitalProfileRepository.save(profile);
         return account;
+    }
+
+    private AuthenticatedAccount hospitalPrincipal(UserAccount hospital) {
+        return new AuthenticatedAccount(
+                hospital.getPublicId(),
+                hospital.getOrganization().getPublicId(),
+                UserRole.HOSPITAL_STAFF
+        );
+    }
+
+    private TransportHospitalSearchResponse readHospitalSearch(
+            UserAccount paramedic,
+            String requestId
+    ) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/transport-requests/{requestId}/hospital-search", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return objectMapper.readValue(body, TransportHospitalSearchResponse.class);
+    }
+
+    private TransportHospitalSearchResponse.Offer findOffer(
+            TransportHospitalSearchResponse response,
+            String offerId
+    ) {
+        return response.offers().stream()
+                .filter(offer -> offer.offerId().equals(offerId))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private void assertHospitalLocationHidden(TransportHospitalSearchResponse.Offer offer) {
+        assertThat(offer.hospitalAddress()).isNull();
+        assertThat(offer.hospitalDetailAddress()).isNull();
+        assertThat(offer.hospitalLatitude()).isNull();
+        assertThat(offer.hospitalLongitude()).isNull();
+    }
+
+    private void assertHospitalLocation(
+            TransportHospitalSearchResponse.Offer offer,
+            String address,
+            String detailAddress,
+            String latitude
+    ) {
+        assertThat(offer.hospitalAddress()).isEqualTo(address);
+        assertThat(offer.hospitalDetailAddress()).isEqualTo(detailAddress);
+        assertThat(offer.hospitalLatitude()).isEqualByComparingTo(latitude);
+        assertThat(offer.hospitalLongitude()).isEqualByComparingTo("127.0105000");
     }
 
     private String bearer(UserAccount account) {

@@ -8,6 +8,9 @@ Available After: MAIN_MERGE
 Breaking Change: NO
 ```
 
+> 수락 병원의 주소·상세주소·좌표 필드는
+> `docs/handoffs/19-hospital-detail-address/flutter-paramedic.md`가 최신 기준입니다.
+
 ## 변경 요약
 
 - 이동 중인 목적지 병원이 수락을 철회하면 목적지가 즉시 해제됩니다.

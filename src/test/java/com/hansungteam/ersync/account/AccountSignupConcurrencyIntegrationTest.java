@@ -207,6 +207,7 @@ class AccountSignupConcurrencyIntegrationTest {
                     loginId,
                     "safe-password",
                     "서울특별시 성북구",
+                    null,
                     new BigDecimal("37.5821000"),
                     new BigDecimal("127.0105000"),
                     "02-1234-5678",

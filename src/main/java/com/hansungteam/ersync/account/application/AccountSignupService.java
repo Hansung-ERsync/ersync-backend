@@ -92,6 +92,7 @@ public class AccountSignupService {
                     organization,
                     account,
                     request.address().trim(),
+                    normalizeOptionalDetailAddress(request.detailAddress()),
                     request.latitude(),
                     request.longitude(),
                     contact
@@ -159,6 +160,10 @@ public class AccountSignupService {
         );
         consume(invitation, account);
         return SignupResponse.paramedic(account);
+    }
+
+    private String normalizeOptionalDetailAddress(String detailAddress) {
+        return detailAddress == null || detailAddress.isBlank() ? null : detailAddress.trim();
     }
 
     private InvitationCode requireUsableInvitation(

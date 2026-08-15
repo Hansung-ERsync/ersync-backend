@@ -8,6 +8,7 @@ import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawa
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -40,6 +41,10 @@ public record TransportHospitalSearchResponse(
             int dispatchAttemptNumber,
             String hospitalName,
             String hospitalContact,
+            String hospitalAddress,
+            String hospitalDetailAddress,
+            BigDecimal hospitalLatitude,
+            BigDecimal hospitalLongitude,
             HospitalOfferStatus status,
             boolean currentDestination,
             long straightLineDistanceMeters,

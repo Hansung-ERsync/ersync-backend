@@ -13,6 +13,8 @@ Admin Impact: NONE
 > 병원 공용 계정이 로그인·새로고침 뒤 자기 병원 정보와 서버에 저장된 실제
 > 신규 요청 수신 상태를 조회할 수 있습니다. 기존 병원 가입·로그인·수신 상태
 > 변경 계약은 그대로 유지됩니다.
+> `detailAddress`가 추가된 최신 프로필 응답은
+> `docs/handoffs/19-hospital-detail-address/react-hospital-admin.md`를 따릅니다.
 
 ## 변경 요약
 
