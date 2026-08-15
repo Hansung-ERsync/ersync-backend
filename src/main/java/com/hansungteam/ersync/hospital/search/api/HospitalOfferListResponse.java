@@ -2,6 +2,7 @@ package com.hansungteam.ersync.hospital.search.api;
 
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
+import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
 import com.hansungteam.ersync.transport.domain.TransportCancellationReason;
@@ -47,6 +48,8 @@ public record HospitalOfferListResponse(
             boolean reRequested,
             Instant lastRequestedAt,
             Instant respondedAt,
+            HospitalRejectionReason rejectionReason,
+            String rejectionDetail,
             HospitalAcceptanceWithdrawalReason withdrawalReason,
             String withdrawalDetail,
             Instant withdrawnAt,

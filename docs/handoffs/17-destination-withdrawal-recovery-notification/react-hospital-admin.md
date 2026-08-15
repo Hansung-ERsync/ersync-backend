@@ -1,5 +1,8 @@
 # 목적지 철회 복구 재알림 React 병원 웹 핸드오프
 
+> **부분 대체:** `REJECTED` HISTORY의 환자정보 공개 범위와 상세 조회 계약은
+> [기능 18 핸드오프](../18-rejected-hospital-history-privacy/react-hospital-admin.md)를 따릅니다.
+
 ```text
 Feature: destination-withdrawal-recovery-notification
 Backend Feature: docs/features/17-destination-withdrawal-recovery-notification/
@@ -200,7 +203,7 @@ SSE payload에는 환자정보와 좌표가 없습니다. REST 응답을 권위 
 | `ACCEPTED`, 목적지 없음 | 수락 유지, `다른 병원으로 이동 중` 표시 해제 |
 | 현재 병원이 새 목적지 | 최신 임상·현재 위치·인계 흐름 사용 |
 | 다른 병원이 새 목적지 | ACTIVE 상태 유지, 최신 임상·정확한 위치 숨김 |
-| `REJECTED` | HISTORY에 거절 시점 정보만 표시 |
+| `REJECTED` | HISTORY에 거절 사유·처리 시각만 표시하고 상세 링크 제거 |
 | `ACCEPTANCE_WITHDRAWN` | HISTORY에 철회 사유 표시 |
 
 ## 오류

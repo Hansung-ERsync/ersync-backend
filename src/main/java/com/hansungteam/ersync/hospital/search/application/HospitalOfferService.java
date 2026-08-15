@@ -104,7 +104,7 @@ public class HospitalOfferService {
                 : offerRepository.findHistoryForHospital(profile.getId(), pageable);
         Instant now = clock.instant();
         List<HospitalOfferListResponse.Item> items = result.getContent().stream()
-                .map(offer -> isHiddenResponseHistory(offer)
+                .map(offer -> view == HospitalOfferView.HISTORY
                         ? toMinimalHistoryItem(offer)
                         : toListItem(offer, requireSnapshot(offer)))
                 .toList();
@@ -127,7 +127,7 @@ public class HospitalOfferService {
                         profile.getOrganization().getPublicId()
                 )
                 .orElseThrow(() -> new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND));
-        if (isHiddenResponseHistory(offer)) {
+        if (isClosedHistory(offer)) {
             throw new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND);
         }
         return toDetail(offer, requireSnapshot(offer), clock.instant());
@@ -548,6 +548,8 @@ public class HospitalOfferService {
                 offer.isReRequested(),
                 offer.getLastRequestedAt(),
                 offer.getRespondedAt(),
+                offer.getRejectionReason(),
+                offer.getRejectionDetail(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
                 offer.getWithdrawnAt(),
@@ -589,6 +591,8 @@ public class HospitalOfferService {
                 offer.isReRequested(),
                 offer.getLastRequestedAt(),
                 offer.getRespondedAt(),
+                offer.getRejectionReason(),
+                offer.getRejectionDetail(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
                 offer.getWithdrawnAt(),
@@ -722,15 +726,17 @@ public class HospitalOfferService {
         );
     }
 
-    private boolean isHiddenResponseHistory(HospitalOffer offer) {
+    private boolean isClosedHistory(HospitalOffer offer) {
+        if (offer.getClosedAt() != null) {
+            return true;
+        }
         if (offer.getTransportRequest().getStatus() == TransportRequestStatus.COMPLETED
                 || offer.getTransportRequest().getStatus() == TransportRequestStatus.CANCELLED) {
             return true;
         }
-        if (offer.getStatus() == HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) {
-            return true;
-        }
-        return false;
+        return offer.getStatus() == HospitalOfferStatus.REJECTED
+                || offer.getStatus() == HospitalOfferStatus.NO_RESPONSE
+                || offer.getStatus() == HospitalOfferStatus.ACCEPTANCE_WITHDRAWN;
     }
 
     private boolean isRouteVisible(HospitalOffer offer) {
