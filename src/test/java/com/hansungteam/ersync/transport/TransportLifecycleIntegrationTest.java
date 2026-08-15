@@ -199,27 +199,27 @@ class TransportLifecycleIntegrationTest {
     }
 
     @Test
-    void candidatesExhaustedAndAcceptedAvailableCanBothBeCancelled() {
-        UserAccount exhaustedOwner = createParamedic("exhaustedcancelmedic");
-        String exhaustedRequestId = requestService.create(
-                paramedicPrincipal(exhaustedOwner),
-                "exhausted-cancel-request",
+    void searchingWithoutCandidatesAndAcceptedAvailableCanBothBeCancelled() {
+        UserAccount searchingOwner = createParamedic("searchingcancelmedic");
+        String searchingRequestId = requestService.create(
+                paramedicPrincipal(searchingOwner),
+                "searching-cancel-request",
                 ValidTransportRequestFixtures.request()
         ).response().transportRequestId();
-        var exhaustedAttempt = attemptRepository
-                .findByTransportRequestPublicIdAndAttemptNumber(exhaustedRequestId, 1)
+        var searchingAttempt = attemptRepository
+                .findByTransportRequestPublicIdAndAttemptNumber(searchingRequestId, 1)
                 .orElseThrow();
-        searchService.processDueAttempt(exhaustedAttempt.getId());
-        assertThat(requestRepository.findByPublicId(exhaustedRequestId).orElseThrow().getStatus())
-                .isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
+        searchService.processDueAttempt(searchingAttempt.getId());
+        assertThat(requestRepository.findByPublicId(searchingRequestId).orElseThrow().getStatus())
+                .isEqualTo(TransportRequestStatus.SEARCHING);
 
         lifecycleService.cancel(
-                paramedicPrincipal(exhaustedOwner),
-                exhaustedRequestId,
-                "exhausted-cancel-command",
+                paramedicPrincipal(searchingOwner),
+                searchingRequestId,
+                "searching-cancel-command",
                 new CancelTransportRequestRequest(TransportCancellationReason.SCENE_RESOLVED, null)
         );
-        assertThat(requestRepository.findByPublicId(exhaustedRequestId).orElseThrow().getStatus())
+        assertThat(requestRepository.findByPublicId(searchingRequestId).orElseThrow().getStatus())
                 .isEqualTo(TransportRequestStatus.CANCELLED);
 
         UserAccount acceptedOwner = createParamedic("acceptedcancelmedic");

@@ -178,28 +178,12 @@ public class TransportRequest {
         return Arrays.equals(requestFingerprint, fingerprint);
     }
 
-    /** 최대 탐색 반경에서 수락 병원이 없음을 기록합니다. */
-    public void markCandidatesExhausted() {
-        if (status != TransportRequestStatus.SEARCHING) {
-            throw new IllegalStateException("Only a searching request can be exhausted");
-        }
-        status = TransportRequestStatus.CANDIDATES_EXHAUSTED;
-    }
-
     /** 탐색 중이거나 후보 소진 뒤 병원이 수락하면 목적지를 선택할 수 있는 상태로 변경합니다. */
     public void markAcceptedAvailable() {
         if (status == TransportRequestStatus.SEARCHING
                 || status == TransportRequestStatus.CANDIDATES_EXHAUSTED) {
             status = TransportRequestStatus.ACCEPTED_AVAILABLE;
         }
-    }
-
-    /** 후보 소진 요청의 새 탐색 회차를 시작합니다. */
-    public void resumeSearching() {
-        if (status != TransportRequestStatus.CANDIDATES_EXHAUSTED) {
-            throw new IllegalStateException("Only an exhausted request can restart search");
-        }
-        status = TransportRequestStatus.SEARCHING;
     }
 
     /** 수락 병원을 현재 목적지로 원자적으로 지정하고 이동 중 상태로 전환합니다. */
@@ -228,16 +212,6 @@ public class TransportRequest {
         status = hasRemainingAcceptedOffer
                 ? TransportRequestStatus.ACCEPTED_AVAILABLE
                 : TransportRequestStatus.SEARCHING;
-    }
-
-    /** 철회 복구 탐색이 끝날 때 남은 수락이 있으면 선택 가능 상태를 유지합니다. */
-    public void finishWithdrawalRecoverySearch(boolean hasAcceptedOffer) {
-        if (currentDestinationOffer != null) {
-            return;
-        }
-        status = hasAcceptedOffer
-                ? TransportRequestStatus.ACCEPTED_AVAILABLE
-                : TransportRequestStatus.CANDIDATES_EXHAUSTED;
     }
 
     public boolean hasDestination(HospitalOffer offer) {

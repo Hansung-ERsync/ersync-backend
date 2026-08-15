@@ -50,7 +50,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -68,7 +67,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class HospitalSearchApiIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
-    @Autowired private ObjectMapper objectMapper;
     @Autowired private OrganizationRepository organizationRepository;
     @Autowired private UserAccountRepository userAccountRepository;
     @Autowired private ParamedicProfileRepository paramedicProfileRepository;
@@ -244,7 +242,7 @@ class HospitalSearchApiIntegrationTest {
     }
 
     @Test
-    void finalRejectionExhaustsRequestAndParamedicRetryIsIdempotent() throws Exception {
+    void finalRejectionKeepsSearchActiveAndManualRetryRouteIsUnavailable() throws Exception {
         UserAccount paramedic = createParamedic("apimedic2");
         UserAccount hospital = createHospital("apihospital3", "37.6021000");
         String requestId = createAndSearch(paramedic, "api-search-request-2");
@@ -273,7 +271,7 @@ class HospitalSearchApiIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.offerStatus").value("REJECTED"))
-                .andExpect(jsonPath("$.transportRequestStatus").value("CANDIDATES_EXHAUSTED"));
+                .andExpect(jsonPath("$.transportRequestStatus").value("SEARCHING"));
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
@@ -283,31 +281,17 @@ class HospitalSearchApiIntegrationTest {
         mockMvc.perform(get("/api/v1/transport-requests/{requestId}/hospital-search", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CANDIDATES_EXHAUSTED"))
-                .andExpect(jsonPath("$.exhaustionReason").value("ALL_REJECTED"))
-                .andExpect(jsonPath("$.offers[0].hospitalContact").value("02-0000-0000"));
-
-        String firstRetry = mockMvc.perform(post(
-                                "/api/v1/transport-requests/{requestId}/dispatch-attempts",
-                                requestId
-                        )
-                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
-                        .header("Idempotency-Key", "retry-api-key-01"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.attemptNumber").value(2))
-                .andExpect(jsonPath("$.transportRequestStatus").value("SEARCHING"))
-                .andReturn().getResponse().getContentAsString();
-        String attemptId = objectMapper.readTree(firstRetry).get("dispatchAttemptId").asText();
+                .andExpect(jsonPath("$.status").value("SEARCHING"))
+                .andExpect(jsonPath("$.exhaustionReason").doesNotExist())
+                .andExpect(jsonPath("$.offers[0].hospitalContact").doesNotExist());
 
         mockMvc.perform(post("/api/v1/transport-requests/{requestId}/dispatch-attempts", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
                         .header("Idempotency-Key", "retry-api-key-01"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dispatchAttemptId").value(attemptId))
-                .andExpect(jsonPath("$.idempotentReplay").value(true));
+                .andExpect(status().isNotFound());
 
         assertThat(attemptRepository.findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)
-                .orElseThrow().getAttemptNumber()).isEqualTo(2);
+                .orElseThrow().getAttemptNumber()).isEqualTo(1);
         assertThat(transportRequestRepository.findByPublicId(requestId).orElseThrow().getStatus())
                 .isEqualTo(TransportRequestStatus.SEARCHING);
     }

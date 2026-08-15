@@ -109,7 +109,7 @@ class HospitalSearchIntegrationTest {
     }
 
     @Test
-    void noEligibleHospitalExhaustsAtOneHundredKilometersWithoutCreatingOffer() {
+    void noEligibleHospitalWaitsAtOneHundredKilometersWithoutCreatingOffer() {
         UserAccount paramedic = createParamedic("searchmedic2");
 
         var creation = transportRequestService.create(
@@ -132,14 +132,15 @@ class HospitalSearchIntegrationTest {
         assertThat(rounds).extracting(round -> round.getRadiusKm())
                 .containsExactly(10, 20, 30, 40, 50, 60, 70, 80, 90, 100);
         assertThat(rounds).allMatch(round -> round.getCandidateCount() == 0);
-        assertThat(storedAttempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.EXHAUSTED);
+        assertThat(storedAttempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.SEARCHING);
         assertThat(storedAttempt.getCurrentRadiusKm()).isEqualTo(100);
         assertThat(storedAttempt.isCandidateShortage()).isTrue();
         assertThat(storedAttempt.getNextExpansionAt()).isNull();
-        assertThat(storedRequest.getStatus()).isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
+        assertThat(storedAttempt.getEndedAt()).isNull();
+        assertThat(storedRequest.getStatus()).isEqualTo(TransportRequestStatus.SEARCHING);
         assertThat(offerRepository.count()).isZero();
-        assertThat(outboxEventRepository.count()).isEqualTo(1);
-        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_SEARCH_EXHAUSTED)).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_SEARCH_EXHAUSTED)).isZero();
     }
 
     @Test
@@ -177,7 +178,7 @@ class HospitalSearchIntegrationTest {
     }
 
     @Test
-    void finalResponseWindowMarksPendingOfferNoResponseAndExhaustsRequest() {
+    void finalResponseWindowKeepsPendingOfferAndSearchOpen() {
         UserAccount paramedic = createParamedic("searchmedic4");
         UserAccount hospital = createHospital("timeouthospital", "37.6021000", ReceivingStatus.ON, true);
 
@@ -200,22 +201,25 @@ class HospitalSearchIntegrationTest {
         var offer = offerRepository.findByDispatchAttemptIdOrderByOfferedAtAsc(attempt.getId()).getFirst();
         var request = transportRequestRepository.findByPublicId(creation.response().transportRequestId())
                 .orElseThrow();
-        assertThat(offer.getStatus()).isEqualTo(HospitalOfferStatus.NO_RESPONSE);
-        assertThat(offer.getClosedAt()).isNotNull();
-        assertThat(attempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.EXHAUSTED);
-        assertThat(request.getStatus()).isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
-        assertThat(outboxEventRepository.count()).isEqualTo(3);
-        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_OFFER_NO_RESPONSE)).isEqualTo(1);
+        assertThat(offer.getStatus()).isEqualTo(HospitalOfferStatus.PENDING);
+        assertThat(offer.getClosedAt()).isNull();
+        assertThat(attempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.SEARCHING);
+        assertThat(attempt.getNextExpansionAt()).isNull();
+        assertThat(attempt.getEndedAt()).isNull();
+        assertThat(request.getStatus()).isEqualTo(TransportRequestStatus.SEARCHING);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_OFFER_NO_RESPONSE)).isZero();
+        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_SEARCH_EXHAUSTED)).isZero();
 
-        var history = hospitalOfferService.list(
+        var active = hospitalOfferService.list(
                 hospitalAuthenticated(hospital),
-                HospitalOfferView.HISTORY,
+                HospitalOfferView.ACTIVE,
                 0,
                 20
         );
-        assertThat(history.items()).singleElement().satisfies(item -> {
-            assertThat(item.hospitalOutcome().name()).isEqualTo("NO_RESPONSE");
-            assertThat(item.processedAt()).isEqualTo(offer.getClosedAt());
+        assertThat(active.items()).singleElement().satisfies(item -> {
+            assertThat(item.hospitalOutcome().name()).isEqualTo("AWAITING_RESPONSE");
+            assertThat(item.processedAt()).isNull();
         });
     }
 

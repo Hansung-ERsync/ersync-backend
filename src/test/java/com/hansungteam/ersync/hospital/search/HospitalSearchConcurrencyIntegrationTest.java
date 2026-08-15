@@ -103,18 +103,10 @@ class HospitalSearchConcurrencyIntegrationTest {
         var storedRequest = transportRequestRepository.findByPublicId(
                 creation.response().transportRequestId()
         ).orElseThrow();
-        if (storedOffer.getStatus() == HospitalOfferStatus.ACCEPTED) {
-            assertThat(storedAttempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.STOPPED_ON_ACCEPTANCE);
-            assertThat(storedRequest.getStatus()).isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
-            assertThat(outcomes).allMatch(Outcome::successful);
-        } else {
-            assertThat(storedOffer.getStatus()).isEqualTo(HospitalOfferStatus.NO_RESPONSE);
-            assertThat(storedAttempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.EXHAUSTED);
-            assertThat(storedRequest.getStatus()).isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
-            assertThat(outcomes).filteredOn(outcome -> !outcome.successful())
-                    .extracting(Outcome::errorCode)
-                    .containsExactly("TRANSPORT_006");
-        }
+        assertThat(storedOffer.getStatus()).isEqualTo(HospitalOfferStatus.ACCEPTED);
+        assertThat(storedAttempt.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.STOPPED_ON_ACCEPTANCE);
+        assertThat(storedRequest.getStatus()).isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
+        assertThat(outcomes).allMatch(Outcome::successful);
     }
 
     private UserAccount createParamedic() {

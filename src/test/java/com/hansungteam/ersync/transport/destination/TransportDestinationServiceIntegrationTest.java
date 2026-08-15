@@ -15,7 +15,6 @@ import com.hansungteam.ersync.hospital.application.HospitalReceivingService;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
-import com.hansungteam.ersync.hospital.search.application.TransportHospitalSearchService;
 import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
@@ -83,7 +82,6 @@ class TransportDestinationServiceIntegrationTest {
     @Autowired private HospitalSearchService searchService;
     @Autowired private HospitalOfferService offerService;
     @Autowired private HospitalReceivingService hospitalReceivingService;
-    @Autowired private TransportHospitalSearchService transportHospitalSearchService;
     @Autowired private TransportDestinationService destinationService;
     @Autowired private JwtTokenService jwtTokenService;
     @Autowired private MockMvc mockMvc;
@@ -470,7 +468,7 @@ class TransportDestinationServiceIntegrationTest {
     }
 
     @Test
-    void withdrawnHospitalContactRemainsHiddenAfterRecoverySearchExhaustion() throws Exception {
+    void withdrawnHospitalContactRemainsHiddenWhileRecoverySearchWaits() throws Exception {
         UserAccount paramedic = createParamedic("withdrawncontactmedic");
         UserAccount hospital = createHospital("withdrawncontacthospital", "37.6021000");
         String requestId = createAndSearch(paramedic);
@@ -494,7 +492,9 @@ class TransportDestinationServiceIntegrationTest {
         searchService.processDueAttempt(recovery.getId());
 
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow().getStatus())
-                .isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
+                .isEqualTo(TransportRequestStatus.SEARCHING);
+        assertThat(attemptRepository.findById(recovery.getId()).orElseThrow().getStatus())
+                .isEqualTo(HospitalDispatchAttemptStatus.SEARCHING);
         mockMvc.perform(get("/api/v1/transport-requests/{requestId}/hospital-search", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))
                 .andExpect(status().isOk())
@@ -503,7 +503,7 @@ class TransportDestinationServiceIntegrationTest {
     }
 
     @Test
-    void lateAcceptanceAfterWithdrawalRecoveryExhaustionRestoresSelectableState() {
+    void lateAcceptanceWhileWithdrawalRecoveryWaitsRestoresSelectableState() {
         UserAccount paramedic = createParamedic("lateacceptancemedic");
         UserAccount hospitalOne = createHospital("lateacceptancehospital1", "37.6021000");
         UserAccount hospitalTwo = createHospital("lateacceptancehospital2", "37.6121000");
@@ -530,7 +530,7 @@ class TransportDestinationServiceIntegrationTest {
                 .orElseThrow();
         searchService.processDueAttempt(recovery.getId());
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow().getStatus())
-                .isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
+                .isEqualTo(TransportRequestStatus.SEARCHING);
 
         var lateAcceptance = offerService.accept(
                 hospitalPrincipal(hospitalTwo), offerTwo.getPublicId(), "late-acceptance-two"
@@ -547,7 +547,7 @@ class TransportDestinationServiceIntegrationTest {
     }
 
     @Test
-    void lateAcceptanceStopsManualRetryStartedAfterWithdrawalRecoveryExhaustion() {
+    void lateAcceptanceStopsActiveWithdrawalRecoverySearch() {
         UserAccount paramedic = createParamedic("lateretrymedic");
         UserAccount hospitalOne = createHospital("lateretryhospital1", "37.6021000");
         UserAccount hospitalTwo = createHospital("lateretryhospital2", "37.6121000");
@@ -574,20 +574,15 @@ class TransportDestinationServiceIntegrationTest {
                 .orElseThrow();
         searchService.processDueAttempt(recovery.getId());
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow().getStatus())
-                .isEqualTo(TransportRequestStatus.CANDIDATES_EXHAUSTED);
-        transportHospitalSearchService.retry(
-                paramedicPrincipal(paramedic), requestId, "late-retry-command-key"
-        );
-        var manualRetry = attemptRepository
-                .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)
-                .orElseThrow();
-        assertThat(manualRetry.getStatus()).isEqualTo(HospitalDispatchAttemptStatus.SEARCHING);
+                .isEqualTo(TransportRequestStatus.SEARCHING);
+        assertThat(attemptRepository.findById(recovery.getId()).orElseThrow().getStatus())
+                .isEqualTo(HospitalDispatchAttemptStatus.SEARCHING);
 
         offerService.accept(hospitalPrincipal(hospitalTwo), offerTwo.getPublicId(), "late-retry-accept-two");
 
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow().getStatus())
                 .isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
-        assertThat(attemptRepository.findById(manualRetry.getId()).orElseThrow().getStatus())
+        assertThat(attemptRepository.findById(recovery.getId()).orElseThrow().getStatus())
                 .isEqualTo(HospitalDispatchAttemptStatus.STOPPED_ON_ACCEPTANCE);
     }
 

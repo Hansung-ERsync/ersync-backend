@@ -303,15 +303,6 @@ public class HospitalOffer {
         this.closedAt = respondedAt;
     }
 
-    /** 마지막 응답 창이 끝난 미응답 제안을 시스템이 닫습니다. */
-    public void markNoResponse(Instant closedAt) {
-        if (status != HospitalOfferStatus.PENDING) {
-            return;
-        }
-        status = HospitalOfferStatus.NO_RESPONSE;
-        this.closedAt = closedAt;
-    }
-
     /** 요청 종료 시 병원의 실제 응답 상태는 보존하고 활성 제안만 닫습니다. */
     public void close(Instant closedAt) {
         if (this.closedAt == null) {

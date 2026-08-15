@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-/** 병원 응답과 재전송의 의미가 같은지 비교할 SHA-256 지문을 만듭니다. */
+/** 병원 응답 명령의 의미가 같은지 비교할 SHA-256 지문을 만듭니다. */
 @Component
 public class HospitalCommandFingerprint {
 
@@ -18,10 +18,6 @@ public class HospitalCommandFingerprint {
 
     public byte[] reject(HospitalRejectionReason reason, String detail) {
         return digest("REJECT|" + reason.name() + "|" + (detail == null ? "" : detail));
-    }
-
-    public byte[] retry(String transportRequestId) {
-        return digest("RETRY|" + transportRequestId);
     }
 
     public byte[] withdraw(HospitalAcceptanceWithdrawalReason reason, String detail) {
