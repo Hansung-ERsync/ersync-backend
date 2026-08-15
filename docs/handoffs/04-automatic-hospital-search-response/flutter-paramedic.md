@@ -1,5 +1,7 @@
 # 자동 병원 탐색 및 병원 응답 Flutter 구급대원 앱 핸드오프
 
+> **사용 중지:** 현재 백엔드의 이전 계약 기록입니다. 2026-08-13 개정 정책 구현과 핸드오프 갱신 전에는 후보 소진·무응답·전체 재전송·전화 연결을 새 프론트 기능으로 구현하지 않습니다.
+
 ```text
 Feature: automatic-hospital-search-response
 Backend Feature: docs/features/04-automatic-hospital-search-response/

@@ -1,5 +1,7 @@
 # 목적지 선택·변경 및 수락 철회 React 병원·관리자 웹 핸드오프
 
+> **사용 중지:** 현재 백엔드의 이전 계약 기록입니다. 2026-08-13 개정 정책 구현과 핸드오프 갱신 전에는 비목적지 제안 숨김·후보 소진 복구 흐름을 새 프론트 기능으로 구현하지 않습니다.
+
 ```text
 Feature: destination-selection-change-acceptance-withdrawal
 Backend Feature: docs/features/05-destination-selection-change-acceptance-withdrawal/

@@ -1,7 +1,7 @@
 # ERSync 공통 에이전트 컨텍스트
 
 - Audience: frontend and backend AI agents
-- Updated: 2026-07-25
+- Updated: 2026-08-13
 
 This is the one shared context delivered to both frontend and backend agents. It defines product terms, roles, state, visibility, clinical data, workflow, privacy, and reliability rules that both sides must interpret identically.
 
@@ -45,10 +45,11 @@ Organization types are `HOSPITAL` and `EMS_UNIT`.
 9. Exact live location is visible only to the current destination hospital.
 10. Patient name, resident registration number, contact, exact birth date, and detailed home address are not collected or shared in MVP.
 11. Completion requires a paramedic request and current destination hospital confirmation.
-12. After destination selection, non-destination accepted offers disappear from hospital active dashboards but remain in response history and the paramedic's accepted list.
+12. After destination selection, non-destination accepted and pending offers remain visible with `another hospital en route`; accepted hospitals may withdraw and pending hospitals may still accept or reject.
 13. The request owner may cancel before handoff is requested, with a mandatory cancellation reason. Cancellation is terminal.
-14. Exhausted hospital search may be retried on the same request and may contact previously rejected or nonresponsive hospitals in a new dispatch attempt.
+14. MVP assumes at least one hospital eventually accepts. It has no separate no-response or candidate-exhausted outcome, full resend action, or hospital phone action.
 15. A destination hospital keeps the last location when updates stop and sees a stale age after 30 seconds by default.
+16. If the current destination issues an urgent inability-to-receive notice, exclude only that hospital and resume searching from the latest paramedic location on the same request.
 
 ## 5. Account and Invitation Policy
 
@@ -332,7 +333,7 @@ Each accepted update:
 
 Hospital users cannot edit paramedic clinical records.
 
-Clinical summary recipients are hospitals with an open `PENDING` offer and, before destination selection, hospitals with an open `ACCEPTED` offer. After destination selection, only the current destination receives later clinical updates among accepted hospitals. Stop delivery after rejection, withdrawal, cancellation, completion, or active-view closure caused by selecting another hospital. Exact location remains restricted to the current destination hospital.
+Before destination selection, hospitals with an open `PENDING` or `ACCEPTED` offer may receive the latest minimum clinical summary needed for a response. After destination selection, only the current destination receives later clinical updates and exact location. Other pending and accepted hospitals keep their existing permitted snapshot and response rights. When an urgent destination withdrawal causes a pending hospital to be re-notified, provide that hospital with the latest minimum clinical summary at that point. Stop delivery after rejection, withdrawal, cancellation, or completion.
 
 ## 10. Hospital Search Policy
 
@@ -359,19 +360,9 @@ Initial search expands immediately by 10km until at least three candidates exist
 
 If no hospital accepts for 60 seconds, expand by 10km and send only to newly included hospitals. Stop automatic expansion on the first acceptance.
 
-Within one dispatch attempt, no hospital receives the same request twice.
+Within one transport request, one hospital has at most one offer/card. A repeated notification updates the existing pending offer instead of creating a duplicate card.
 
-When the maximum radius has been contacted and no hospital accepts:
-
-- transition to `CANDIDATES_EXHAUSTED` after the final 60-second response window;
-- transition immediately when every contacted hospital has rejected before that window ends;
-- transition immediately when no eligible hospital exists inside the maximum radius;
-- show rejected and nonresponsive outcomes explicitly;
-- retain the same request, patient records, search rounds, and offer history.
-
-The paramedic may retry delivery on the same request. A retry creates a new dispatch attempt and returns the request to `SEARCHING`. Hospitals that rejected or did not respond in an earlier attempt are eligible again. Create new offers for the new attempt; do not mutate earlier response history.
-
-The paramedic may also start a phone call from a candidate hospital's registered ER contact. A phone call is outside the system and never changes request or offer state automatically.
+MVP assumes at least one hospital eventually accepts. Do not expose a separate no-response or candidate-exhausted outcome, full resend action, or hospital phone action. A pending hospital remains pending until it accepts, rejects, the request is cancelled or completed, or an allowed policy transition closes it.
 
 ## 11. Hospital Response Policy
 
@@ -409,14 +400,22 @@ OTHER
 
 `OTHER` requires detail.
 
-On withdrawal:
+Before destination selection, an accepted hospital may withdraw with a mandatory reason. If another destination already exists, that destination remains unchanged and no new search starts.
+
+The current destination uses an urgent inability-to-receive notice rather than an ordinary withdrawal. On that notice:
 
 - notify the paramedic urgently;
-- clear destination if the withdrawn hospital was current;
-- keep the same `TransportRequest`;
-- search from the latest paramedic location;
-- exclude the withdrawn hospital and all previously contacted hospitals;
-- retain all response history.
+- clear the current destination;
+- exclude the withdrawn hospital from this transport request;
+- keep the same `TransportRequest` and all response history;
+- retain every other accepted hospital so the paramedic can select it immediately;
+- re-notify existing pending hospitals by updating their existing card, request time, and latest minimum clinical summary;
+- do not resend to rejected hospitals;
+- search from the latest paramedic location and create offers only for newly eligible hospitals;
+- never choose the next destination automatically.
+
+The paramedic UI does not enter a separate `no accepted hospital` state. Until the
+paramedic selects a new destination, display `새로운 목적지를 찾고 있습니다`.
 
 ## 12. Destination Policy
 
@@ -428,9 +427,9 @@ The paramedic may select another accepted offer. On change:
 - notify the new hospital that the ambulance is en route;
 - notify the previous destination that it is no longer selected;
 - keep both acceptance records;
-- remove every non-destination accepted offer from hospital active dashboards;
-- retain non-destination accepted offers in the paramedic's accepted list and hospital response history;
-- restore the selected hospital's active card if a previously hidden accepted hospital becomes the new destination;
+- keep non-destination accepted offers visible as `accepted, another hospital en route` and withdrawable;
+- keep pending offers visible as `another hospital en route, response available`;
+- keep non-destination accepted offers in the paramedic's accepted list;
 - stop exact location delivery to the previous destination.
 
 ## 13. Transport Cancellation
@@ -448,13 +447,13 @@ OTHER
 
 Cancellation:
 
-- is allowed from `SEARCHING`, `CANDIDATES_EXHAUSTED`, `ACCEPTED_AVAILABLE`, or `EN_ROUTE`;
+- is allowed from `SEARCHING`, `ACCEPTED_AVAILABLE`, or `EN_ROUTE`;
 - sets the request to `CANCELLED` and records actor, reason, and server time;
 - clears the current destination;
 - closes active offers without erasing their response history;
-- notifies every pending or accepted hospital, including accepted hospitals already hidden from the active dashboard;
+- notifies every pending or accepted hospital, including non-destination accepted hospitals;
 - removes the request from every hospital active dashboard and the paramedic active flow;
-- rejects resume and later clinical, location, destination, retry-search, or handoff commands.
+- rejects resume and later clinical, location, destination, re-search, or handoff commands.
 
 If transport becomes necessary again, create a new request.
 
@@ -479,7 +478,6 @@ Suggested `TransportRequestStatus`:
 
 ```text
 SEARCHING
-CANDIDATES_EXHAUSTED
 ACCEPTED_AVAILABLE
 EN_ROUTE
 HANDOFF_REQUESTED
@@ -493,11 +491,10 @@ Suggested `HospitalOfferStatus`:
 PENDING
 ACCEPTED
 REJECTED
-NO_RESPONSE
 ACCEPTANCE_WITHDRAWN
 ```
 
-Destination is represented separately by `TransportRequest.currentDestinationOfferId` and immutable destination events. Offer closure is represented by `closedAt` and the request state. Offer response history should be event/audit based. Do not erase earlier statuses.
+Destination is represented separately by `TransportRequest.currentDestinationOfferId` and immutable destination events. `목적지 재선정 중` is a product display state after urgent destination withdrawal; its internal representation must be chosen in the feature spec without reintroducing candidate exhaustion. Offer closure is represented by `closedAt` and the request state. Offer response history should be event/audit based. Do not erase earlier statuses. Legacy enum values may remain in the current code until a dedicated implementation aligns it, but they are not target MVP behavior.
 
 ## 16. Handoff Completion
 
@@ -523,10 +520,7 @@ Repeated commands must be idempotent.
 TRANSPORT_REQUEST_RECEIVED
 HOSPITAL_OFFER_ACCEPTED
 HOSPITAL_OFFER_REJECTED
-HOSPITAL_OFFER_NO_RESPONSE
 HOSPITAL_ACCEPTANCE_WITHDRAWN
-HOSPITAL_SEARCH_EXHAUSTED
-HOSPITAL_SEARCH_RETRY_STARTED
 DESTINATION_SELECTED
 DESTINATION_CHANGED
 VITAL_SIGNS_ADDED
@@ -557,7 +551,7 @@ and records the choice in its implementation document.
 - hash passwords and invitation codes
 - exact location restricted to current destination hospital
 - audit actor, organization, action, server time, entity, before/after or event payload, and reason
-- audit search exhaustion, retry dispatch attempts, transport cancellation, and cancellation reason
+- audit urgent destination withdrawal, resulting search rounds, transport cancellation, and cancellation reason
 - use correlation IDs that do not contain patient data
 
 Retention periods require legal validation. Completion means hidden from active views, not physical deletion.
@@ -565,12 +559,12 @@ Retention periods require legal validation. Completion means hidden from active 
 ## 20. Reliability and Performance Targets
 
 - idempotency key for request creation and all critical commands
-- optimistic/pessimistic concurrency guard for offer response, destination change, search retry, and cancellation
+- optimistic/pessimistic concurrency guard for offer response, destination change, urgent-withdrawal re-search, and cancellation
 - normal API p95 target: 1 second
 - server-to-client response notification target: 3 seconds
 - reconnect and catch-up for realtime clients
 - retry external map and push providers with bounded backoff
-- monitor event delivery delay, search radius, candidate count, exhausted/retry counts, stale-location duration, and map failures
+- monitor event delivery delay, search radius, candidate count, urgent-withdrawal re-search counts, stale-location duration, and map failures
 
 Targets must be validated by load and field tests.
 
@@ -582,10 +576,10 @@ If older notes conflict with this document, follow these resolutions:
 - initial hospital recipients are automatic, not manually selected;
 - multiple hospitals can accept; one acceptance does not cancel others;
 - destination is chosen by the paramedic;
-- selecting a destination hides other accepted offers from hospital active dashboards but keeps their history and the paramedic's accepted list;
+- selecting a destination keeps other accepted and pending offers visible with `another hospital en route` while restricting later clinical updates and exact location to the current destination;
 - cancellation before handoff request is terminal and requires a reason;
-- retry after candidate exhaustion keeps the same request but creates a new dispatch attempt;
-- phone acceptance does not change application state automatically;
+- no-response, candidate exhaustion, full resend, and hospital phone actions are out of MVP;
+- urgent destination withdrawal keeps the same request, excludes the withdrawn hospital, re-notifies pending hospitals without duplicate cards, and adds newly eligible hospitals from the latest location;
 - stale location remains visible with elapsed-time text and is not an error;
 - ETA is map-derived, not manually entered;
 - situation-room features are future scope;
@@ -603,6 +597,8 @@ If older notes conflict with this document, follow these resolutions:
 - patient direct identifiers in the app
 - GPS route history
 - automatic final hospital assignment
+- separate no-response and candidate-exhausted outcomes
+- full hospital resend after maximum-radius search and hospital phone action
 - complex password/account recovery
 
 ## 23. Required Tests
@@ -615,14 +611,12 @@ At minimum test:
 - append-only updates and correction history
 - measured/client/server timestamp separation
 - unauthorized hospital clinical access
-- search radius expansion and no duplicate offer within one dispatch attempt
-- candidate exhaustion after final wait or early all-rejected result
-- retry on the same request with new offers for previously rejected or nonresponsive hospitals
-- phone action without automatic state transition
+- search radius expansion sends offers only to newly eligible hospitals
+- one offer/card per transport request and hospital when a pending hospital is re-notified
 - simultaneous hospital acceptance
 - atomic destination change
-- non-destination accepted hospital card hidden while response history remains
-- current destination withdrawal and re-search
+- non-destination accepted and pending cards remain visible with response rights but no later clinical or exact-location delivery
+- current destination urgent withdrawal, withdrawn-hospital exclusion, pending-card refresh, and latest-location search for new hospitals
 - cancellation from each allowed state, mandatory reason, notification, destination release, and terminal behavior
 - ETA failure without request failure
 - exact location access restrictions
