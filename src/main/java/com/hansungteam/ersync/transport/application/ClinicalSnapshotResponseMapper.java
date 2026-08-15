@@ -14,12 +14,25 @@ import org.springframework.stereotype.Component;
 public class ClinicalSnapshotResponseMapper {
 
     ClinicalTimelineResponse.LatestSnapshot latest(CurrentPatientSnapshot snapshot) {
-        return new ClinicalTimelineResponse.LatestSnapshot(
-                preKtas(snapshot.getLatestPreKtasAssessment()),
-                consciousness(snapshot.getLatestConsciousnessAssessment()),
-                vitalSigns(snapshot.getLatestVitalSignSet()),
-                snapshot.getCurrentTreatments().stream().map(this::treatment).toList(),
+        return latest(new ClinicalSnapshotView(
+                snapshot.getPatientDemographics(),
+                snapshot.getIncidentAssessment(),
+                snapshot.getLatestPreKtasAssessment(),
+                snapshot.getLatestConsciousnessAssessment(),
+                snapshot.getLatestVitalSignSet(),
+                snapshot.getCurrentTreatments(),
+                snapshot.getLatestSupplementalAssessment(),
                 snapshot.getLastClinicalUpdateAt()
+        ));
+    }
+
+    ClinicalTimelineResponse.LatestSnapshot latest(ClinicalSnapshotView snapshot) {
+        return new ClinicalTimelineResponse.LatestSnapshot(
+                preKtas(snapshot.latestPreKtasAssessment()),
+                consciousness(snapshot.latestConsciousnessAssessment()),
+                vitalSigns(snapshot.latestVitalSignSet()),
+                snapshot.currentTreatments().stream().map(this::treatment).toList(),
+                snapshot.lastClinicalUpdateAt()
         );
     }
 

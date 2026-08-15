@@ -44,6 +44,12 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
 
     List<HospitalOffer> findByTransportRequestIdAndStatus(Long transportRequestId, HospitalOfferStatus status);
 
+    @EntityGraph(attributePaths = {"transportRequest", "hospitalProfile", "hospitalProfile.organization"})
+    List<HospitalOffer> findByTransportRequestIdAndStatusIn(
+            Long transportRequestId,
+            Collection<HospitalOfferStatus> statuses
+    );
+
     @Query("select offer.id from HospitalOffer offer "
             + "where offer.transportRequest.id = :transportRequestId order by offer.id asc")
     List<Long> findIdsByTransportRequestIdOrderById(
@@ -85,12 +91,10 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
             + "and offer.closedAt is null "
             + "and offer.transportRequest.status not in ("
             + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.COMPLETED, "
-            + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED) and ("
-            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING and "
-            + "offer.transportRequest.currentDestinationOffer is null) or "
-            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and ("
-            + "offer.transportRequest.currentDestinationOffer is null or "
-            + "offer.transportRequest.currentDestinationOffer.id = offer.id)))")
+            + "com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED) "
+            + "and offer.status in ("
+            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING, "
+            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED)")
     Page<HospitalOffer> findActiveForHospital(
             @Param("hospitalProfileId") Long hospitalProfileId,
             Pageable pageable
@@ -105,12 +109,7 @@ public interface HospitalOfferRepository extends JpaRepository<HospitalOffer, Lo
             + "offer.closedAt is not null or offer.status in ("
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.REJECTED, "
             + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.NO_RESPONSE, "
-            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTANCE_WITHDRAWN) or "
-            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING and "
-            + "offer.transportRequest.currentDestinationOffer is not null) or "
-            + "(offer.status = com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED and "
-            + "offer.transportRequest.currentDestinationOffer is not null and "
-            + "offer.transportRequest.currentDestinationOffer.id <> offer.id))")
+            + "com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTANCE_WITHDRAWN))")
     Page<HospitalOffer> findHistoryForHospital(
             @Param("hospitalProfileId") Long hospitalProfileId,
             Pageable pageable

@@ -352,21 +352,19 @@ class TransportLifecycleIntegrationTest {
         assertThat(latestDestination.getDestinationOfferId()).isEqualTo(offer.getId());
         assertThat(latestDestination.getOccurredAt())
                 .isCloseTo(destinationSelected.changedAt(), within(1, ChronoUnit.MICROS));
-        Instant destinationProcessedAt = latestDestination.getOccurredAt();
-
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hospitalOutcome").value("ACCEPTED"))
                 .andExpect(jsonPath("$.processedAt").exists());
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
-                        .queryParam("view", "HISTORY")
+                        .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(otherAcceptedHospital)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].transportRequestStatus").value("EN_ROUTE"))
                 .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
-                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(destinationProcessedAt.toString()));
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "HISTORY")
                         .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
@@ -381,12 +379,12 @@ class TransportLifecycleIntegrationTest {
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTANCE_WITHDRAWN"))
                 .andExpect(jsonPath("$.items[0].processedAt").exists());
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
-                        .queryParam("view", "HISTORY")
+                        .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].offerStatus").value("PENDING"))
-                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("NOT_SELECTED"))
-                .andExpect(jsonPath("$.items[0].processedAt").value(destinationProcessedAt.toString()));
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("AWAITING_RESPONSE"))
+                .andExpect(jsonPath("$.items[0].currentDestination").value(false));
 
         mockMvc.perform(post("/api/v1/transport-requests/{requestId}/handoff-request", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))

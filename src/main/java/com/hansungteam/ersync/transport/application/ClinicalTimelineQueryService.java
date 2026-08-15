@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.List;
@@ -51,6 +52,7 @@ public class ClinicalTimelineQueryService {
     private final HospitalOfferRepository hospitalOfferRepository;
     private final CurrentPatientSnapshotRepository snapshotRepository;
     private final ClinicalTimelineRepository timelineRepository;
+    private final ClinicalSnapshotReader clinicalSnapshotReader;
     private final VitalSignSetRepository vitalSignSetRepository;
     private final ConsciousnessAssessmentRepository consciousnessAssessmentRepository;
     private final PreKtasAssessmentRepository preKtasAssessmentRepository;
@@ -73,7 +75,7 @@ public class ClinicalTimelineQueryService {
         TransportRequest request = transportRequestRepository
                 .findByPublicIdAndOwnerAccountPublicId(requestId, account.getPublicId())
                 .orElseThrow(() -> new CustomException(ErrorCode.TRANSPORT_REQUEST_NOT_FOUND));
-        return timeline(request, page, size);
+        return timeline(request, page, size, null, null);
     }
 
     @Transactional(readOnly = true)
@@ -95,10 +97,22 @@ public class ClinicalTimelineQueryService {
         if (!hospitalClinicalAccessPolicy.canRead(offer)) {
             throw new CustomException(ErrorCode.HOSPITAL_OFFER_NOT_FOUND);
         }
-        return timeline(offer.getTransportRequest(), page, size);
+        return timeline(
+                offer.getTransportRequest(),
+                page,
+                size,
+                offer.getClinicalVisibilityCutoffAt(),
+                offer.getFrozenLastClinicalUpdateAt()
+        );
     }
 
-    private ClinicalTimelineResponse timeline(TransportRequest request, int page, int size) {
+    private ClinicalTimelineResponse timeline(
+            TransportRequest request,
+            int page,
+            int size,
+            Instant cutoffAt,
+            Instant frozenLastClinicalUpdateAt
+    ) {
         long offset = (long) page * size;
         if (page < 0 || size < 1 || size > 100 || offset > Integer.MAX_VALUE) {
             throw new CustomException(ErrorCode.COMMON_REQUEST_VALIDATION_FAILED);
@@ -106,8 +120,17 @@ public class ClinicalTimelineQueryService {
         CurrentPatientSnapshot snapshot = snapshotRepository
                 .findByTransportRequestPublicId(request.getPublicId())
                 .orElseThrow(() -> new CustomException(ErrorCode.TRANSPORT_REQUEST_NOT_FOUND));
-        List<ClinicalTimelineRow> rows = timelineRepository.findPage(request.getId(), (int) offset, size);
-        long total = timelineRepository.count(request.getId());
+        ClinicalSnapshotView visibleSnapshot = clinicalSnapshotReader.read(
+                snapshot,
+                cutoffAt,
+                frozenLastClinicalUpdateAt
+        );
+        List<ClinicalTimelineRow> rows = cutoffAt == null
+                ? timelineRepository.findPage(request.getId(), (int) offset, size)
+                : timelineRepository.findPage(request.getId(), cutoffAt, (int) offset, size);
+        long total = cutoffAt == null
+                ? timelineRepository.count(request.getId())
+                : timelineRepository.count(request.getId(), cutoffAt);
         Map<ClinicalRecordType, List<String>> ids = rows.stream().collect(Collectors.groupingBy(
                 ClinicalTimelineRow::recordType,
                 () -> new EnumMap<>(ClinicalRecordType.class),
@@ -140,7 +163,7 @@ public class ClinicalTimelineQueryService {
         }).toList();
         int totalPages = total == 0 ? 0 : (int) ((total + size - 1) / size);
         return new ClinicalTimelineResponse(
-                request.getPublicId(), snapshotResponseMapper.latest(snapshot),
+                request.getPublicId(), snapshotResponseMapper.latest(visibleSnapshot),
                 items, page, size, total, totalPages, clock.instant()
         );
     }

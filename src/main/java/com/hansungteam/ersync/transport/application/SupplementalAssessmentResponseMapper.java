@@ -4,6 +4,7 @@ import com.hansungteam.ersync.global.exception.CustomException;
 import com.hansungteam.ersync.global.exception.ErrorCode;
 import com.hansungteam.ersync.transport.api.SupplementalAssessmentResponse;
 import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
+import com.hansungteam.ersync.transport.domain.SupplementalAssessmentRecord;
 import com.hansungteam.ersync.transport.domain.SupplementalAssessmentType;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +13,14 @@ import org.springframework.stereotype.Component;
 public class SupplementalAssessmentResponseMapper {
 
     public SupplementalAssessmentResponse map(CurrentPatientSnapshot snapshot) {
-        var record = snapshot.getLatestSupplementalAssessment();
+        return map(snapshot.getLatestSupplementalAssessment());
+    }
+
+    public SupplementalAssessmentResponse map(ClinicalSnapshotView snapshot) {
+        return map(snapshot.latestSupplementalAssessment());
+    }
+
+    private SupplementalAssessmentResponse map(SupplementalAssessmentRecord record) {
         if (record == null) {
             return null;
         }

@@ -26,6 +26,8 @@ import com.hansungteam.ersync.transport.destination.domain.TransportDestinationR
 import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.domain.TransportRequest;
 import com.hansungteam.ersync.transport.domain.TransportRequestStatus;
+import com.hansungteam.ersync.transport.domain.CurrentPatientSnapshot;
+import com.hansungteam.ersync.transport.infrastructure.CurrentPatientSnapshotRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportCurrentLocationRepository;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +53,7 @@ public class TransportDestinationService {
 
     private final UserAccountRepository userAccountRepository;
     private final TransportRequestRepository transportRequestRepository;
+    private final CurrentPatientSnapshotRepository snapshotRepository;
     private final HospitalOfferRepository hospitalOfferRepository;
     private final HospitalDispatchAttemptRepository attemptRepository;
     private final TransportDestinationCommandRepository commandRepository;
@@ -109,11 +112,12 @@ public class TransportDestinationService {
 
         HospitalOffer previous = request.getCurrentDestinationOffer();
         TransportDestinationResultType resultType = determineResult(previous, destination);
+        Instant changedAt = clock.instant();
         if (resultType != TransportDestinationResultType.UNCHANGED) {
             request.selectDestination(destination);
+            updateClinicalVisibility(request, destination, changedAt);
         }
 
-        Instant changedAt = clock.instant();
         if (resultType != TransportDestinationResultType.UNCHANGED
                 && currentLocationRepository.findByTransportRequestId(request.getId()).isPresent()) {
             destination.scheduleRouteEstimateRecalculation(changedAt);
@@ -190,6 +194,27 @@ public class TransportDestinationService {
         return locked;
     }
 
+    private void updateClinicalVisibility(
+            TransportRequest request,
+            HospitalOffer destination,
+            Instant changedAt
+    ) {
+        CurrentPatientSnapshot snapshot = snapshotRepository
+                .findByTransportRequestPublicId(request.getPublicId())
+                .orElseThrow(() -> new CustomException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR));
+        List<HospitalOffer> activeOffers = hospitalOfferRepository.findByTransportRequestIdAndStatusIn(
+                request.getId(),
+                Set.of(HospitalOfferStatus.PENDING, HospitalOfferStatus.ACCEPTED)
+        );
+        for (HospitalOffer offer : activeOffers) {
+            if (offer.getId().equals(destination.getId())) {
+                offer.allowLiveClinicalVisibility();
+                continue;
+            }
+            offer.freezeClinicalVisibility(changedAt, snapshot.getLastClinicalUpdateAt());
+        }
+    }
+
     private void recordChange(
             TransportDestinationCommand command,
             UserAccount account,
@@ -242,7 +267,10 @@ public class TransportDestinationService {
     ) {
         Set<String> organizationIds = new LinkedHashSet<>();
         if (resultType == TransportDestinationResultType.SELECTED) {
-            hospitalOfferRepository.findByTransportRequestIdAndStatus(request.getId(), HospitalOfferStatus.ACCEPTED)
+            hospitalOfferRepository.findByTransportRequestIdAndStatusIn(
+                            request.getId(),
+                            Set.of(HospitalOfferStatus.PENDING, HospitalOfferStatus.ACCEPTED)
+                    )
                     .stream()
                     .map(offer -> offer.getHospitalProfile().getOrganization().getPublicId())
                     .forEach(organizationIds::add);

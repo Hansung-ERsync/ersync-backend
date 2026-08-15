@@ -173,8 +173,12 @@ class MySqlDatabaseIntegrationTest {
                     OR (table_name = 'contact_sharing_consents' AND column_name = 'consent_type')
                     OR (table_name = 'current_patient_snapshots'
                         AND column_name = 'latest_supplemental_assessment_id')
+                    OR (table_name = 'hospital_offers'
+                        AND column_name = 'clinical_visibility_cutoff_at')
+                    OR (table_name = 'hospital_offers'
+                        AND column_name = 'frozen_last_clinical_update_at')
                   )
-                """, Integer.class)).isEqualTo(10);
+                """, Integer.class)).isEqualTo(12);
     }
 
     @Test
