@@ -14,6 +14,10 @@ import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
+import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
+import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
+import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptTrigger;
+import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEventType;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
 import com.hansungteam.ersync.invitation.api.InvitationExpiryOption;
@@ -33,6 +37,8 @@ import com.hansungteam.ersync.transport.application.TransportRequestService;
 import com.hansungteam.ersync.transport.destination.application.TransportDestinationService;
 import com.hansungteam.ersync.transport.destination.infrastructure.TransportDestinationCommandRepository;
 import com.hansungteam.ersync.transport.infrastructure.TransportRequestRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -84,6 +90,9 @@ class MySqlDatabaseIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Autowired
     private MockMvc mockMvc;
@@ -177,8 +186,11 @@ class MySqlDatabaseIntegrationTest {
                         AND column_name = 'clinical_visibility_cutoff_at')
                     OR (table_name = 'hospital_offers'
                         AND column_name = 'frozen_last_clinical_update_at')
+                    OR (table_name = 'hospital_offers' AND column_name = 'last_requested_at')
+                    OR (table_name = 'hospital_offers' AND column_name = 'renotification_count')
+                    OR (table_name = 'hospital_offers' AND column_name = 'last_requested_attempt_id')
                   )
-                """, Integer.class)).isEqualTo(12);
+                """, Integer.class)).isEqualTo(15);
     }
 
     @Test
@@ -421,6 +433,139 @@ class MySqlDatabaseIntegrationTest {
                   AND index_name = 'idx_destination_commands_request_occurred'
                   AND column_name IN ('transport_request_id', 'occurred_at')
                 """, Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    @Transactional
+    void destinationWithdrawalRenotificationPersistsOnMySql84() {
+        Organization paramedicOrganization = organizationRepository.save(Organization.create(
+                "MySQL 철회 복구 구급대",
+                OrganizationType.EMS_UNIT
+        ));
+        UserAccount paramedic = userAccountRepository.save(UserAccount.createMember(
+                paramedicOrganization,
+                "mysqlrenotifymedic",
+                "encoded-password",
+                UserRole.PARAMEDIC
+        ));
+        paramedicProfileRepository.save(ParamedicProfile.create(
+                paramedic,
+                paramedicOrganization,
+                "010-0000-0086"
+        ));
+        consentRepository.save(ContactSharingConsent.record(
+                paramedic,
+                "CONTACT_SHARING_DEV_1.0",
+                Instant.parse("2026-08-07T09:00:00Z")
+        ));
+        UserAccount destinationHospital = createReceivingHospital(
+                "mysqlrenotifydestination",
+                "MySQL 철회 목적지 병원",
+                "37.6021000"
+        );
+        UserAccount pendingHospital = createReceivingHospital(
+                "mysqlrenotifypending",
+                "MySQL 철회 재요청 병원",
+                "37.6121000"
+        );
+        Long destinationProfileId = hospitalProfileRepository
+                .findByAccountPublicId(destinationHospital.getPublicId())
+                .orElseThrow()
+                .getId();
+        Long pendingProfileId = hospitalProfileRepository
+                .findByAccountPublicId(pendingHospital.getPublicId())
+                .orElseThrow()
+                .getId();
+        AuthenticatedAccount paramedicPrincipal = new AuthenticatedAccount(
+                paramedic.getPublicId(),
+                paramedicOrganization.getPublicId(),
+                UserRole.PARAMEDIC
+        );
+        String requestId = transportRequestService.create(
+                paramedicPrincipal,
+                "mysql-renotify-request",
+                ValidTransportRequestFixtures.request()
+        ).response().transportRequestId();
+        var initialAttempt = dispatchAttemptRepository
+                .findByTransportRequestPublicIdAndAttemptNumber(requestId, 1)
+                .orElseThrow();
+        hospitalSearchService.processDueAttempt(initialAttempt.getId());
+        var initialOffers = hospitalOfferRepository
+                .findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var destinationOffer = initialOffers.stream()
+                .filter(offer -> offer.getHospitalProfile().getId().equals(destinationProfileId))
+                .findFirst()
+                .orElseThrow();
+        var pendingOffer = initialOffers.stream()
+                .filter(offer -> offer.getHospitalProfile().getId().equals(pendingProfileId))
+                .findFirst()
+                .orElseThrow();
+        entityManager.flush();
+        entityManager.refresh(pendingOffer);
+        Instant originalOfferedAt = pendingOffer.getOfferedAt();
+
+        hospitalOfferService.accept(
+                hospitalPrincipal(destinationHospital),
+                destinationOffer.getPublicId(),
+                "mysql-renotify-accept"
+        );
+        transportDestinationService.select(
+                paramedicPrincipal,
+                requestId,
+                "mysql-renotify-select",
+                destinationOffer.getPublicId()
+        );
+        hospitalOfferService.withdrawAcceptance(
+                hospitalPrincipal(destinationHospital),
+                destinationOffer.getPublicId(),
+                "mysql-renotify-withdraw",
+                new WithdrawHospitalAcceptanceRequest(
+                        HospitalAcceptanceWithdrawalReason.OPERATING_ROOM_SHORTAGE,
+                        null
+                )
+        );
+
+        entityManager.flush();
+        entityManager.clear();
+
+        var recovery = dispatchAttemptRepository
+                .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)
+                .orElseThrow();
+        var storedPending = hospitalOfferRepository.findById(pendingOffer.getId()).orElseThrow();
+        assertThat(recovery.getTriggerType()).isEqualTo(HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL);
+        assertThat(storedPending.getPublicId()).isEqualTo(pendingOffer.getPublicId());
+        assertThat(storedPending.getOfferedAt()).isEqualTo(originalOfferedAt);
+        assertThat(storedPending.getRenotificationCount()).isEqualTo(1);
+        assertThat(storedPending.getLastRequestedAttempt().getId()).isEqualTo(recovery.getId());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT renotification_count FROM hospital_offers WHERE id = ?",
+                Integer.class,
+                pendingOffer.getId()
+        )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT last_requested_attempt_id FROM hospital_offers WHERE id = ?",
+                Long.class,
+                pendingOffer.getId()
+        )).isEqualTo(recovery.getId());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM hospital_offer_events WHERE hospital_offer_id = ? AND event_type = ?",
+                Integer.class,
+                pendingOffer.getId(),
+                HospitalOfferEventType.RENOTIFIED.name()
+        )).isEqualTo(1);
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE hospital_offers SET last_requested_at = NULL WHERE id = ?",
+                pendingOffer.getId()
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE hospital_offers SET renotification_count = -1 WHERE id = ?",
+                pendingOffer.getId()
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE hospital_offers SET last_requested_attempt_id = ? WHERE id = ?",
+                Long.MAX_VALUE,
+                pendingOffer.getId()
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class);
     }
 
     @Test

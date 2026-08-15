@@ -110,13 +110,21 @@ class HospitalSearchApiIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].offerId").value(hospitalOneOffer.getPublicId()));
+                .andExpect(jsonPath("$.items[0].offerId").value(hospitalOneOffer.getPublicId()))
+                .andExpect(jsonPath("$.items[0].reRequested").value(false))
+                .andExpect(jsonPath("$.items[0].lastRequestedAt").value(
+                        hospitalOneOffer.getOfferedAt().toString()
+                ));
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", hospitalOneOffer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requester.callbackContact").value("010-0000-0001"))
                 .andExpect(jsonPath("$.patient.ageYears").value(45))
+                .andExpect(jsonPath("$.timing.reRequested").value(false))
+                .andExpect(jsonPath("$.timing.lastRequestedAt").value(
+                        hospitalOneOffer.getOfferedAt().toString()
+                ))
                 .andExpect(jsonPath("$.originLatitude").doesNotExist());
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", hospitalOneOffer.getPublicId())
@@ -277,6 +285,36 @@ class HospitalSearchApiIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requester.callbackContact").value("****-0001"));
+
+        var initialVitals = ValidTransportRequestFixtures.request().vitalSigns();
+        var updateAfterRejection = new UpdateVitalSignsRequest(
+                initialVitals.measuredAt().plusSeconds(60),
+                initialVitals.enteredAt().plusSeconds(60),
+                initialVitals.measurements().stream().map(measurement ->
+                        new UpdateVitalSignsRequest.VitalSignInput(
+                                measurement.type(), measurement.state(), measurement.primaryValue(),
+                                measurement.secondaryValue(), measurement.unavailableReason(),
+                                measurement.unavailableDetail()
+                        )).toList()
+        );
+        clinicalUpdateService.addVitalSigns(
+                new AuthenticatedAccount(
+                        paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+                ),
+                requestId,
+                "rejected-offer-hidden-clinical-update",
+                updateAfterRejection
+        );
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vitalSigns.measuredAt")
+                        .value(initialVitals.measuredAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
 
         mockMvc.perform(get("/api/v1/transport-requests/{requestId}/hospital-search", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))
@@ -581,6 +619,146 @@ class HospitalSearchApiIntegrationTest {
         )).isNull();
         assertThat(offerRepository.findById(offer.getId()).orElseThrow().getRouteEstimateStatus())
                 .isEqualTo(RouteEstimateStatus.UNAVAILABLE);
+    }
+
+    @Test
+    void reRequestedPendingOfferUsesRecoverySnapshotAndOriginUntilSelected() throws Exception {
+        UserAccount paramedic = createParamedic("renotifysnapshotmedic");
+        UserAccount destinationHospital = createHospital("renotifysnapshotdestination", "37.6021000");
+        UserAccount pendingHospital = createHospital("renotifysnapshotpending", "37.6121000");
+        String requestId = createAndSearch(paramedic, "renotify-snapshot-request");
+        var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
+        var destinationOffer = offers.stream()
+                .filter(candidate -> candidate.getHospitalProfile().getAccount().getId()
+                        .equals(destinationHospital.getId()))
+                .findFirst()
+                .orElseThrow();
+        var pendingOffer = offers.stream()
+                .filter(candidate -> candidate.getHospitalProfile().getAccount().getId()
+                        .equals(pendingHospital.getId()))
+                .findFirst()
+                .orElseThrow();
+        AuthenticatedAccount paramedicPrincipal = new AuthenticatedAccount(
+                paramedic.getPublicId(), paramedic.getOrganization().getPublicId(), UserRole.PARAMEDIC
+        );
+        AuthenticatedAccount destinationPrincipal = new AuthenticatedAccount(
+                destinationHospital.getPublicId(), destinationHospital.getOrganization().getPublicId(),
+                UserRole.HOSPITAL_STAFF
+        );
+        AuthenticatedAccount pendingPrincipal = new AuthenticatedAccount(
+                pendingHospital.getPublicId(), pendingHospital.getOrganization().getPublicId(),
+                UserRole.HOSPITAL_STAFF
+        );
+        hospitalOfferService.accept(
+                destinationPrincipal, destinationOffer.getPublicId(), "renotify-snapshot-accept-a"
+        );
+        destinationService.select(
+                paramedicPrincipal, requestId, "renotify-snapshot-select-a", destinationOffer.getPublicId()
+        );
+
+        var initialVitals = ValidTransportRequestFixtures.request().vitalSigns();
+        var visibleAtRenotification = new UpdateVitalSignsRequest(
+                initialVitals.measuredAt().plusSeconds(60),
+                initialVitals.enteredAt().plusSeconds(60),
+                initialVitals.measurements().stream().map(measurement ->
+                        new UpdateVitalSignsRequest.VitalSignInput(
+                                measurement.type(), measurement.state(), measurement.primaryValue(),
+                                measurement.secondaryValue(), measurement.unavailableReason(),
+                                measurement.unavailableDetail()
+                        )).toList()
+        );
+        clinicalUpdateService.addVitalSigns(
+                paramedicPrincipal,
+                requestId,
+                "renotify-snapshot-visible-update",
+                visibleAtRenotification
+        );
+        transportLocationService.update(
+                paramedicPrincipal,
+                requestId,
+                "renotify-snapshot-location",
+                new UpdateTransportLocationRequest(
+                        new BigDecimal("37.7100000"),
+                        new BigDecimal("127.2100000"),
+                        Instant.parse("2026-08-04T11:00:00Z")
+                )
+        );
+
+        hospitalOfferService.withdrawAcceptance(
+                destinationPrincipal,
+                destinationOffer.getPublicId(),
+                "renotify-snapshot-withdraw-a",
+                new WithdrawHospitalAcceptanceRequest(HospitalAcceptanceWithdrawalReason.BED_SHORTAGE, null)
+        );
+        var recovery = attemptRepository
+                .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)
+                .orElseThrow();
+        var reRequested = offerRepository.findById(pendingOffer.getId()).orElseThrow();
+        assertThat(reRequested.isReRequested()).isTrue();
+        assertThat(reRequested.getLastRequestedAttempt().getId()).isEqualTo(recovery.getId());
+        assertThat(recovery.getSearchOriginLatitude()).isEqualByComparingTo("37.7100000");
+        assertThat(recovery.getSearchOriginLongitude()).isEqualByComparingTo("127.2100000");
+
+        var hiddenAfterRenotification = new UpdateVitalSignsRequest(
+                initialVitals.measuredAt().plusSeconds(120),
+                initialVitals.enteredAt().plusSeconds(120),
+                initialVitals.measurements().stream().map(measurement ->
+                        new UpdateVitalSignsRequest.VitalSignInput(
+                                measurement.type(), measurement.state(), measurement.primaryValue(),
+                                measurement.secondaryValue(), measurement.unavailableReason(),
+                                measurement.unavailableDetail()
+                        )).toList()
+        );
+        clinicalUpdateService.addVitalSigns(
+                paramedicPrincipal,
+                requestId,
+                "renotify-snapshot-hidden-update",
+                hiddenAfterRenotification
+        );
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", pendingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timing.reRequested").value(true))
+                .andExpect(jsonPath("$.vitalSigns.measuredAt")
+                        .value(visibleAtRenotification.measuredAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", pendingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+
+        Instant routeNow = Instant.now().plusSeconds(1);
+        var inFlight = routeEstimatePersistence.claim(
+                pendingOffer.getId(), routeNow, routeNow.plusSeconds(15)
+        );
+        assertThat(inFlight).isNotNull();
+        assertThat(inFlight.originLatitude()).isEqualByComparingTo("37.7100000");
+        assertThat(inFlight.originLongitude()).isEqualByComparingTo("127.2100000");
+        hospitalOfferService.accept(
+                pendingPrincipal, pendingOffer.getPublicId(), "renotify-snapshot-accept-c"
+        );
+        routeEstimatePersistence.complete(
+                pendingOffer.getId(), inFlight.generation(), new RouteEstimate(1400, 210),
+                routeNow.plusSeconds(1)
+        );
+        assertThat(offerRepository.findById(pendingOffer.getId()).orElseThrow().getRouteEstimateStatus())
+                .isEqualTo(RouteEstimateStatus.AVAILABLE);
+
+        destinationService.select(
+                paramedicPrincipal, requestId, "renotify-snapshot-select-c", pendingOffer.getPublicId()
+        );
+        var selectedOffer = offerRepository.findById(pendingOffer.getId()).orElseThrow();
+        assertThat(selectedOffer.getRouteEstimateGeneration()).isGreaterThan(inFlight.generation());
+        assertThat(selectedOffer.getRouteEstimateStatus()).isEqualTo(RouteEstimateStatus.CALCULATING);
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", pendingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vitalSigns.measuredAt")
+                        .value(hiddenAfterRenotification.measuredAt().toString()));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", pendingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latitude").value(37.71));
     }
 
     private String createAndSearch(UserAccount paramedic, String idempotencyKey) {

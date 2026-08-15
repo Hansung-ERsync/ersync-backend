@@ -1,6 +1,7 @@
 package com.hansungteam.ersync.hospital.search.api;
 
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptTrigger;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
@@ -25,6 +26,7 @@ public record TransportHospitalSearchResponse(
             String dispatchAttemptId,
             int number,
             HospitalDispatchAttemptStatus status,
+            HospitalDispatchAttemptTrigger triggerType,
             int currentRadiusKm,
             boolean candidateShortage,
             Instant nextExpansionAt,

@@ -44,6 +44,8 @@ public record HospitalOfferListResponse(
             Instant lastSuccessfulEtaCalculatedAt,
             Instant lastClinicalUpdateAt,
             Instant offeredAt,
+            boolean reRequested,
+            Instant lastRequestedAt,
             Instant respondedAt,
             HospitalAcceptanceWithdrawalReason withdrawalReason,
             String withdrawalDetail,

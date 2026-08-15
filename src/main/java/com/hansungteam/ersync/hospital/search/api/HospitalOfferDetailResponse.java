@@ -128,6 +128,8 @@ public record HospitalOfferDetailResponse(
     public record Timing(
             Instant requestReceivedAt,
             Instant offeredAt,
+            boolean reRequested,
+            Instant lastRequestedAt,
             Instant lastClinicalUpdateAt
     ) {
     }
