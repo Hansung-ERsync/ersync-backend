@@ -500,6 +500,8 @@ class MySqlDatabaseIntegrationTest {
                 .filter(offer -> offer.getHospitalProfile().getId().equals(pendingProfileId))
                 .findFirst()
                 .orElseThrow();
+        entityManager.flush();
+        entityManager.refresh(pendingOffer);
         Instant originalOfferedAt = pendingOffer.getOfferedAt();
 
         hospitalOfferService.accept(
