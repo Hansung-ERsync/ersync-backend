@@ -56,6 +56,7 @@ class HospitalProfileIntegrationTest {
                 .andExpect(jsonPath("$.organizationName").value("프로필 조회 병원"))
                 .andExpect(jsonPath("$.hospitalId").value(context.profile().getPublicId()))
                 .andExpect(jsonPath("$.address").value("서울특별시 성북구"))
+                .andExpect(jsonPath("$.detailAddress").value("본관 1층 응급의료센터"))
                 .andExpect(jsonPath("$.latitude").value(37.5821))
                 .andExpect(jsonPath("$.longitude").value(127.0105))
                 .andExpect(jsonPath("$.contact").value("02-1234-5678"))
@@ -207,6 +208,7 @@ class HospitalProfileIntegrationTest {
                 organization,
                 account,
                 "서울특별시 성북구",
+                "본관 1층 응급의료센터",
                 new BigDecimal("37.5821000"),
                 new BigDecimal("127.0105000"),
                 "02-1234-5678"

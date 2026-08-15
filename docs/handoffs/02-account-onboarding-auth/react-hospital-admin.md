@@ -13,6 +13,8 @@ Admin Impact: YES
 > 병원·관리자 로그인 요청과 로그인 아이디 고유성은 11번 역할별 로그인 아이디
 > 문서가 최신 기준입니다. 이 문서는 병원 회원가입, 조직·가입 코드 관리와 토큰
 > 갱신 계약을 참고할 때 사용합니다.
+> 병원 가입의 상세주소와 자기 프로필 응답은
+> `docs/handoffs/19-hospital-detail-address/react-hospital-admin.md`가 최신 기준입니다.
 
 ## 변경 요약
 

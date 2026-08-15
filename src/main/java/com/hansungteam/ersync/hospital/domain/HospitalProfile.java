@@ -47,6 +47,9 @@ public class HospitalProfile {
     @Column(nullable = false, length = 255)
     private String address;
 
+    @Column(name = "detail_address", length = 200)
+    private String detailAddress;
+
     @Column(nullable = false, precision = 10, scale = 7)
     private BigDecimal latitude;
 
@@ -74,6 +77,7 @@ public class HospitalProfile {
             Organization organization,
             UserAccount account,
             String address,
+            String detailAddress,
             BigDecimal latitude,
             BigDecimal longitude,
             String contact
@@ -82,6 +86,7 @@ public class HospitalProfile {
         this.organization = organization;
         this.account = account;
         this.address = address;
+        this.detailAddress = detailAddress;
         this.latitude = latitude;
         this.longitude = longitude;
         this.contact = contact;
@@ -93,11 +98,32 @@ public class HospitalProfile {
             Organization organization,
             UserAccount account,
             String address,
+            String detailAddress,
             BigDecimal latitude,
             BigDecimal longitude,
             String contact
     ) {
-        return new HospitalProfile(organization, account, address, latitude, longitude, contact);
+        return new HospitalProfile(
+                organization,
+                account,
+                address,
+                detailAddress,
+                latitude,
+                longitude,
+                contact
+        );
+    }
+
+    /** 상세주소가 없는 기존 생성 계약을 유지합니다. */
+    public static HospitalProfile create(
+            Organization organization,
+            UserAccount account,
+            String address,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            String contact
+    ) {
+        return create(organization, account, address, null, latitude, longitude, contact);
     }
 
     /** 신규 요청 수신 상태를 변경합니다. */

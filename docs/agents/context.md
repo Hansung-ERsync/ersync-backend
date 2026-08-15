@@ -65,7 +65,12 @@ Invitation code rules:
 - admin may revoke before expiry
 - issue, use, expiry, and revoke events are audited
 
-Hospital signup also captures ER address, verified latitude/longitude, and contact number. New hospital receiving state defaults to `OFF`.
+Hospital signup also captures ER address, optional detail address up to 200 characters,
+verified latitude/longitude, and contact number. New hospital receiving state defaults to
+`OFF`. An offer snapshots the hospital address, detail address, and coordinates when it is
+created. Expose these location fields to the owning paramedic only while the offer is
+`ACCEPTED`; keep them absent for pending, rejected, withdrawn, and no-response offers.
+Hospital detail address is ER location data, not the prohibited patient residential address.
 
 ### 5.1 Clinical Protocol Versioning
 

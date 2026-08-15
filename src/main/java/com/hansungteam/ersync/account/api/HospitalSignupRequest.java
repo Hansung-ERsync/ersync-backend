@@ -17,6 +17,7 @@ public record HospitalSignupRequest(
         @NotBlank @Pattern(regexp = "[a-z0-9]{4,30}") String loginId,
         @NotBlank @Size(min = 8, max = 64) String password,
         @NotBlank @Size(max = 255) String address,
+        @Size(max = 200) String detailAddress,
         @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
         @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude,
         @NotBlank @Size(max = 30) String contact,

@@ -189,8 +189,12 @@ class MySqlDatabaseIntegrationTest {
                     OR (table_name = 'hospital_offers' AND column_name = 'last_requested_at')
                     OR (table_name = 'hospital_offers' AND column_name = 'renotification_count')
                     OR (table_name = 'hospital_offers' AND column_name = 'last_requested_attempt_id')
+                    OR (table_name = 'hospital_profiles' AND column_name = 'detail_address')
+                    OR (table_name = 'hospital_offers' AND column_name = 'hospital_address_snapshot')
+                    OR (table_name = 'hospital_offers'
+                        AND column_name = 'hospital_detail_address_snapshot')
                   )
-                """, Integer.class)).isEqualTo(15);
+                """, Integer.class)).isEqualTo(18);
     }
 
     @Test
@@ -357,7 +361,9 @@ class MySqlDatabaseIntegrationTest {
         UserAccount hospitalOne = createReceivingHospital(
                 "mysqlprojectionhospital1",
                 "MySQL 목적지 조회 1병원",
-                "37.6021000"
+                "37.6021000",
+                "서울특별시 성북구 MySQL로 1",
+                "본관 1층 응급의료센터"
         );
         UserAccount hospitalTwo = createReceivingHospital(
                 "mysqlprojectionhospital2",
@@ -393,6 +399,25 @@ class MySqlDatabaseIntegrationTest {
                 .filter(offer -> offer.getHospitalProfile().getId().equals(hospitalTwoProfileId))
                 .findFirst()
                 .orElseThrow();
+        entityManager.flush();
+
+        assertThat(offerOne.getHospitalAddressSnapshot()).isEqualTo("서울특별시 성북구 MySQL로 1");
+        assertThat(offerOne.getHospitalDetailAddressSnapshot()).isEqualTo("본관 1층 응급의료센터");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT detail_address FROM hospital_profiles WHERE id = ?",
+                String.class,
+                hospitalOneProfileId
+        )).isEqualTo("본관 1층 응급의료센터");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT hospital_address_snapshot FROM hospital_offers WHERE id = ?",
+                String.class,
+                offerOne.getId()
+        )).isEqualTo("서울특별시 성북구 MySQL로 1");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT hospital_detail_address_snapshot FROM hospital_offers WHERE id = ?",
+                String.class,
+                offerOne.getId()
+        )).isEqualTo("본관 1층 응급의료센터");
 
         hospitalOfferService.accept(hospitalPrincipal(hospitalOne), offerOne.getPublicId(), "mysql-accept-1");
         hospitalOfferService.accept(hospitalPrincipal(hospitalTwo), offerTwo.getPublicId(), "mysql-accept-2");
@@ -623,6 +648,22 @@ class MySqlDatabaseIntegrationTest {
     }
 
     private UserAccount createReceivingHospital(String loginId, String organizationName, String latitude) {
+        return createReceivingHospital(
+                loginId,
+                organizationName,
+                latitude,
+                "서울특별시 테스트 주소",
+                null
+        );
+    }
+
+    private UserAccount createReceivingHospital(
+            String loginId,
+            String organizationName,
+            String latitude,
+            String address,
+            String detailAddress
+    ) {
         Organization organization = organizationRepository.save(Organization.create(
                 organizationName,
                 OrganizationType.HOSPITAL
@@ -636,7 +677,8 @@ class MySqlDatabaseIntegrationTest {
         HospitalProfile profile = HospitalProfile.create(
                 organization,
                 account,
-                "서울특별시 테스트 주소",
+                address,
+                detailAddress,
                 new BigDecimal(latitude),
                 new BigDecimal("127.0105000"),
                 "02-0000-0085"

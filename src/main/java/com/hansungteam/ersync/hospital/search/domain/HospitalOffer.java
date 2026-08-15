@@ -63,6 +63,12 @@ public class HospitalOffer {
     @Column(name = "hospital_contact_snapshot", nullable = false, length = 30)
     private String hospitalContactSnapshot;
 
+    @Column(name = "hospital_address_snapshot", nullable = false, length = 255)
+    private String hospitalAddressSnapshot;
+
+    @Column(name = "hospital_detail_address_snapshot", length = 200)
+    private String hospitalDetailAddressSnapshot;
+
     @Column(name = "hospital_latitude_snapshot", nullable = false, precision = 10, scale = 7)
     private BigDecimal hospitalLatitudeSnapshot;
 
@@ -205,6 +211,8 @@ public class HospitalOffer {
         this.hospitalProfile = hospitalProfile;
         this.hospitalNameSnapshot = hospitalProfile.getOrganization().getName();
         this.hospitalContactSnapshot = hospitalProfile.getContact();
+        this.hospitalAddressSnapshot = hospitalProfile.getAddress();
+        this.hospitalDetailAddressSnapshot = hospitalProfile.getDetailAddress();
         this.hospitalLatitudeSnapshot = hospitalProfile.getLatitude();
         this.hospitalLongitudeSnapshot = hospitalProfile.getLongitude();
         this.straightLineDistanceMeters = straightLineDistanceMeters;
