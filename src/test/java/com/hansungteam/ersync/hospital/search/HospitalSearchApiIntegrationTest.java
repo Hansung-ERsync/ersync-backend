@@ -222,8 +222,8 @@ class HospitalSearchApiIntegrationTest {
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", rejectedOffer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(rejectedHospital)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.supplementalAssessment").doesNotExist());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
 
         hospitalOfferService.accept(
                 new AuthenticatedAccount(
@@ -274,7 +274,8 @@ class HospitalSearchApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "reason": "ER_GENERAL_BED_SHORTAGE"
+                                  "reason": "OTHER",
+                                  "detail": "Local treatment unavailable"
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -283,8 +284,8 @@ class HospitalSearchApiIntegrationTest {
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.requester.callbackContact").value("****-0001"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
 
         var initialVitals = ValidTransportRequestFixtures.request().vitalSigns();
         var updateAfterRejection = new UpdateVitalSignsRequest(
@@ -308,13 +309,33 @@ class HospitalSearchApiIntegrationTest {
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.vitalSigns.measuredAt")
-                        .value(initialVitals.measuredAt().toString()));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/clinical-timeline", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}/location", offer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSPORT_005"));
+
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .param("view", "HISTORY")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerId").value(offer.getPublicId()))
+                .andExpect(jsonPath("$.items[0].offerStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].hospitalOutcome").value("REJECTED"))
+                .andExpect(jsonPath("$.items[0].rejectionReason").value("OTHER"))
+                .andExpect(jsonPath("$.items[0].rejectionDetail")
+                        .value("Local treatment unavailable"))
+                .andExpect(jsonPath("$.items[0].processedAt").exists())
+                .andExpect(jsonPath("$.items[0].ageStatus").doesNotExist())
+                .andExpect(jsonPath("$.items[0].preKtasLevel").doesNotExist())
+                .andExpect(jsonPath("$.items[0].lastClinicalUpdateAt").doesNotExist())
+                .andExpect(jsonPath("$.items[0].straightLineDistanceMeters").doesNotExist())
+                .andExpect(jsonPath("$.items[0].etaSeconds").doesNotExist());
 
         mockMvc.perform(get("/api/v1/transport-requests/{requestId}/hospital-search", requestId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))

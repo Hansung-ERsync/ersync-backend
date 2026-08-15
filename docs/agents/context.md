@@ -382,6 +382,11 @@ OTHER
 
 `OTHER` requires detail.
 
+After rejection, the hospital may keep only the opaque request identifiers, response status,
+rejection reason and processing time in HISTORY. Block offer detail, clinical timeline and
+location access with `TRANSPORT_005`. Do not expose patient demographics, clinical data,
+requester contact, distance or ETA in the rejected history item.
+
 ### 11.2 Acceptance
 
 Acceptance means the hospital currently states it can receive the patient. Multiple offers can be `ACCEPTED`. Acceptance does not set the destination automatically.
