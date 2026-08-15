@@ -39,8 +39,6 @@ public class HospitalSearchService {
 
     private static final String ATTEMPT_AGGREGATE = "HOSPITAL_DISPATCH_ATTEMPT";
     private static final String OFFER_AGGREGATE = "HOSPITAL_OFFER";
-    private static final String REQUEST_AGGREGATE = "TRANSPORT_REQUEST";
-
     private final HospitalDispatchAttemptRepository attemptRepository;
     private final TransportRequestRepository transportRequestRepository;
     private final HospitalSearchRoundRepository roundRepository;
@@ -132,7 +130,7 @@ public class HospitalSearchService {
         } else if (attempt.getCurrentRadiusKm() < policy.maximumRadiusKm()) {
             expandSearch(attempt, clock.instant());
         } else {
-            closeFinalResponseWindow(attempt, clock.instant());
+            attempt.waitAtMaximumRadius();
         }
     }
 
@@ -148,27 +146,6 @@ public class HospitalSearchService {
                     == com.hansungteam.ersync.transport.domain.TransportRequestStatus.ACCEPTED_AVAILABLE;
         }
         return request.getStatus() == com.hansungteam.ersync.transport.domain.TransportRequestStatus.SEARCHING;
-    }
-
-    /** 최대 반경의 마지막 미결 제안이 거절되면 대기 없이 후보 소진을 확정합니다. */
-    public void exhaustIfMaximumRadiusAllRejected(
-            HospitalDispatchAttempt attempt,
-            TransportRequest transportRequest,
-            Instant decidedAt
-    ) {
-        if (attempt.getStatus() != HospitalDispatchAttemptStatus.SEARCHING
-                || attempt.getCurrentRadiusKm() != policy.maximumRadiusKm()) {
-            return;
-        }
-        List<HospitalOffer> offers = offerRepository.findByDispatchAttemptIdOrderByOfferedAtAsc(attempt.getId());
-        boolean anyPendingOrAccepted = offers.stream().anyMatch(offer ->
-                offer.getStatus() == com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING
-                        || offer.getStatus()
-                        == com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED
-        );
-        if (!offers.isEmpty() && !anyPendingOrAccepted) {
-            exhaust(attempt, transportRequest, decidedAt);
-        }
     }
 
     private void performInitialSearch(HospitalDispatchAttempt attempt, Instant evaluatedAt) {
@@ -210,9 +187,6 @@ public class HospitalSearchService {
             createOffer(transportRequest, attempt, selectedRound, candidate, evaluatedAt);
         }
 
-        if (selectedCandidates.isEmpty()) {
-            exhaustWithoutCandidates(attempt, transportRequest, evaluatedAt);
-        }
     }
 
     private int selectInitialRadius(List<HospitalCandidate> candidates) {
@@ -308,31 +282,6 @@ public class HospitalSearchService {
         );
     }
 
-    private void exhaustWithoutCandidates(
-            HospitalDispatchAttempt attempt,
-            TransportRequest transportRequest,
-            Instant exhaustedAt
-    ) {
-        attempt.exhaust(exhaustedAt);
-        finishExhaustedRequest(attempt, transportRequest);
-        outboxEventRepository.save(RealtimeOutboxEvent.create(
-                RealtimeEventType.HOSPITAL_SEARCH_EXHAUSTED,
-                RealtimeAudienceType.ACCOUNT,
-                transportRequest.getOwnerAccount().getPublicId(),
-                REQUEST_AGGREGATE,
-                transportRequest.getPublicId(),
-                exhaustedAt
-        ));
-        auditService.record(
-                AuditAction.HOSPITAL_SEARCH_EXHAUSTED,
-                transportRequest.getOwnerAccount(),
-                transportRequest.getOrganization(),
-                ATTEMPT_AGGREGATE,
-                attempt.getPublicId(),
-                exhaustedAt
-        );
-    }
-
     private void expandSearch(HospitalDispatchAttempt attempt, Instant evaluatedAt) {
         TransportRequest transportRequest = attempt.getTransportRequest();
         int expandedRadiusKm = Math.min(
@@ -374,89 +323,6 @@ public class HospitalSearchService {
                 attempt.getPublicId(),
                 evaluatedAt
         );
-
-        if (expandedRadiusKm == policy.maximumRadiusKm()
-                && existingOffers.isEmpty()
-                && newCandidates.isEmpty()) {
-            exhaustWithoutCandidates(attempt, transportRequest, evaluatedAt);
-        }
-    }
-
-    private void closeFinalResponseWindow(HospitalDispatchAttempt attempt, Instant closedAt) {
-        TransportRequest transportRequest = attempt.getTransportRequest();
-        List<HospitalOffer> offers = offerRepository.findByDispatchAttemptIdOrderByOfferedAtAsc(attempt.getId());
-        for (HospitalOffer offer : offers) {
-            if (offer.getStatus() != com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.PENDING) {
-                continue;
-            }
-            offer.markNoResponse(closedAt);
-            offerEventRepository.save(HospitalOfferEvent.record(
-                    offer,
-                    HospitalOfferEventType.NO_RESPONSE,
-                    null,
-                    null,
-                    null,
-                    null,
-                    closedAt
-            ));
-            outboxEventRepository.save(RealtimeOutboxEvent.create(
-                    RealtimeEventType.HOSPITAL_OFFER_NO_RESPONSE,
-                    RealtimeAudienceType.ACCOUNT,
-                    transportRequest.getOwnerAccount().getPublicId(),
-                    OFFER_AGGREGATE,
-                    offer.getPublicId(),
-                    closedAt
-            ));
-            auditService.record(
-                    AuditAction.HOSPITAL_OFFER_NO_RESPONSE,
-                    null,
-                    null,
-                    OFFER_AGGREGATE,
-                    offer.getPublicId(),
-                    closedAt
-            );
-        }
-        exhaust(attempt, transportRequest, closedAt);
-    }
-
-    private void exhaust(
-            HospitalDispatchAttempt attempt,
-            TransportRequest transportRequest,
-            Instant exhaustedAt
-    ) {
-        attempt.exhaust(exhaustedAt);
-        finishExhaustedRequest(attempt, transportRequest);
-        outboxEventRepository.save(RealtimeOutboxEvent.create(
-                RealtimeEventType.HOSPITAL_SEARCH_EXHAUSTED,
-                RealtimeAudienceType.ACCOUNT,
-                transportRequest.getOwnerAccount().getPublicId(),
-                REQUEST_AGGREGATE,
-                transportRequest.getPublicId(),
-                exhaustedAt
-        ));
-        auditService.record(
-                AuditAction.HOSPITAL_SEARCH_EXHAUSTED,
-                null,
-                null,
-                ATTEMPT_AGGREGATE,
-                attempt.getPublicId(),
-                exhaustedAt
-        );
-    }
-
-    private void finishExhaustedRequest(
-            HospitalDispatchAttempt attempt,
-            TransportRequest transportRequest
-    ) {
-        if (attempt.getTriggerType() == HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL) {
-            boolean hasAccepted = offerRepository.countByTransportRequestIdAndStatus(
-                    transportRequest.getId(),
-                    com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus.ACCEPTED
-            ) > 0;
-            transportRequest.finishWithdrawalRecoverySearch(hasAccepted);
-            return;
-        }
-        transportRequest.markCandidatesExhausted();
     }
 
     private Set<Long> excludedHospitalIds(HospitalDispatchAttempt attempt) {

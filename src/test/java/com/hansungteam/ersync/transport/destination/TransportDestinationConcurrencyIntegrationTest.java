@@ -388,7 +388,7 @@ class TransportDestinationConcurrencyIntegrationTest {
 
     @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.BEFORE_METHOD)
-    void withdrawalRecoveryExhaustionAndOlderPendingAcceptanceRemainConsistent() throws Exception {
+    void withdrawalRecoveryWaitingAndOlderPendingAcceptanceRemainConsistent() throws Exception {
         UserAccount paramedic = createParamedic("recoveryraceparamedic");
         UserAccount hospitalOne = createHospital("recoveryracehospital1", "37.6021000");
         UserAccount hospitalTwo = createHospital("recoveryracehospital2", "37.6121000");
@@ -433,7 +433,7 @@ class TransportDestinationConcurrencyIntegrationTest {
         assertThat(requestRepository.findByPublicIdAndOwnerAccountPublicId(requestId, paramedic.getPublicId())
                 .orElseThrow().getStatus()).isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
         assertThat(attemptRepository.findById(recovery.getId()).orElseThrow().getStatus())
-                .isEqualTo(HospitalDispatchAttemptStatus.EXHAUSTED);
+                .isEqualTo(HospitalDispatchAttemptStatus.STOPPED_ON_ACCEPTANCE);
     }
 
     private Outcome destinationOutcome(

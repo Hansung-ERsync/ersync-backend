@@ -154,7 +154,7 @@ public class HospitalOfferService {
                 || transportRequest.getStatus() == TransportRequestStatus.CANDIDATES_EXHAUSTED) {
             transportRequest.markAcceptedAvailable();
         }
-        stopActiveSearchOnAcceptance(transportRequest, offer, decidedAt);
+        stopActiveSearchOnAcceptance(transportRequest, decidedAt);
         recordDecision(
                 offer,
                 HospitalOfferEventType.ACCEPTED,
@@ -194,11 +194,6 @@ public class HospitalOfferService {
                 account,
                 request.reason(),
                 detail,
-                decidedAt
-        );
-        hospitalSearchService.exhaustIfMaximumRadiusAllRejected(
-                offer.getDispatchAttempt(),
-                offer.getTransportRequest(),
                 decidedAt
         );
         return decisionResponse(offer, false);
@@ -299,7 +294,6 @@ public class HospitalOfferService {
 
     private void stopActiveSearchOnAcceptance(
             TransportRequest transportRequest,
-            HospitalOffer acceptedOffer,
             Instant acceptedAt
     ) {
         if (transportRequest.getCurrentDestinationOffer() != null) {
@@ -309,9 +303,6 @@ public class HospitalOfferService {
                         transportRequest.getId(),
                         HospitalDispatchAttemptStatus.SEARCHING
                 )
-                .filter(activeAttempt -> activeAttempt.getTriggerType()
-                        != HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL
-                        || activeAttempt.getId().equals(acceptedOffer.getDispatchAttempt().getId()))
                 .ifPresent(activeAttempt -> activeAttempt.stopOnAcceptance(acceptedAt));
     }
 

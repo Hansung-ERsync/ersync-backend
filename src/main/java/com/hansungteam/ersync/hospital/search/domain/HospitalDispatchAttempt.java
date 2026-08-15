@@ -24,7 +24,7 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.UUID;
 
-/** 후보 소진 후 재전송을 포함한 요청별 병원 탐색 한 회차입니다. */
+/** 최초 탐색과 수락 철회 복구를 구분하는 요청별 병원 탐색 한 회차입니다. */
 @Entity
 @Table(name = "hospital_dispatch_attempts")
 @Getter
@@ -129,25 +129,6 @@ public class HospitalDispatchAttempt {
         );
     }
 
-    public static HospitalDispatchAttempt retry(
-            TransportRequest transportRequest,
-            int attemptNumber,
-            String retryIdempotencyKey,
-            byte[] retryFingerprint,
-            Instant startedAt
-    ) {
-        return new HospitalDispatchAttempt(
-                transportRequest,
-                attemptNumber,
-                HospitalDispatchAttemptTrigger.MANUAL_RETRY,
-                retryIdempotencyKey,
-                retryFingerprint,
-                transportRequest.getOriginLatitude(),
-                transportRequest.getOriginLongitude(),
-                startedAt
-        );
-    }
-
     public static HospitalDispatchAttempt withdrawalRecovery(
             TransportRequest transportRequest,
             int attemptNumber,
@@ -191,14 +172,12 @@ public class HospitalDispatchAttempt {
         this.endedAt = endedAt;
     }
 
-    public void exhaust(Instant endedAt) {
-        status = HospitalDispatchAttemptStatus.EXHAUSTED;
+    /** 최대 반경에서 상태를 실패로 바꾸지 않고 추가 scheduler 실행만 중단합니다. */
+    public void waitAtMaximumRadius() {
+        if (status != HospitalDispatchAttemptStatus.SEARCHING) {
+            return;
+        }
         nextExpansionAt = null;
-        this.endedAt = endedAt;
-    }
-
-    public boolean hasSameRetryFingerprint(byte[] fingerprint) {
-        return Arrays.equals(retryFingerprint, fingerprint);
     }
 
     @PrePersist

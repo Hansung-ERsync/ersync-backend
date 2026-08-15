@@ -25,11 +25,6 @@ public interface HospitalDispatchAttemptRepository extends JpaRepository<Hospita
             String transportRequestId
     );
 
-    Optional<HospitalDispatchAttempt> findByTransportRequestPublicIdAndRetryIdempotencyKey(
-            String transportRequestId,
-            String retryIdempotencyKey
-    );
-
     Optional<HospitalDispatchAttempt> findTopByTransportRequestIdAndStatusOrderByAttemptNumberDesc(
             Long transportRequestId,
             HospitalDispatchAttemptStatus status
