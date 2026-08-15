@@ -10,6 +10,7 @@ import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptTrig
 import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEvent;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEventType;
+import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.domain.HospitalSearchRound;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferEventRepository;
@@ -39,6 +40,7 @@ public class HospitalSearchService {
 
     private static final String ATTEMPT_AGGREGATE = "HOSPITAL_DISPATCH_ATTEMPT";
     private static final String OFFER_AGGREGATE = "HOSPITAL_OFFER";
+    private static final String TRANSPORT_REQUEST_AGGREGATE = "TRANSPORT_REQUEST";
     private final HospitalDispatchAttemptRepository attemptRepository;
     private final TransportRequestRepository transportRequestRepository;
     private final HospitalSearchRoundRepository roundRepository;
@@ -69,7 +71,10 @@ public class HospitalSearchService {
     }
 
     /** 수락 철회와 같은 트랜잭션에서 기존 요청을 유지한 새 탐색 회차를 예약합니다. */
-    public HospitalDispatchAttempt startWithdrawalRecovery(TransportRequest transportRequest, Instant startedAt) {
+    public WithdrawalRecoveryStart startWithdrawalRecovery(
+            TransportRequest transportRequest,
+            Instant startedAt
+    ) {
         HospitalDispatchAttempt activeAttempt = attemptRepository
                 .findTopByTransportRequestIdAndStatusOrderByAttemptNumberDesc(
                         transportRequest.getId(), HospitalDispatchAttemptStatus.SEARCHING
@@ -79,7 +84,7 @@ public class HospitalSearchService {
             if (activeAttempt.getTriggerType() != HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL) {
                 throw new IllegalStateException("Only an acceptance withdrawal recovery may remain active");
             }
-            return activeAttempt;
+            return new WithdrawalRecoveryStart(activeAttempt, false);
         }
         HospitalDispatchAttempt latest = attemptRepository
                 .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(transportRequest.getPublicId())
@@ -102,7 +107,66 @@ public class HospitalSearchService {
                 attempt.getPublicId(),
                 startedAt
         );
-        return attempt;
+        return new WithdrawalRecoveryStart(attempt, true);
+    }
+
+    /** 현재 목적지 철회 때 기존 응답 대기 카드만 같은 복구 회차로 다시 요청합니다. */
+    public void renotifyPendingOffers(
+            TransportRequest transportRequest,
+            HospitalDispatchAttempt recoveryAttempt,
+            Instant requestedAt,
+            Instant lastClinicalUpdateAt
+    ) {
+        List<HospitalOffer> pendingOffers = offerRepository.findByTransportRequestIdAndStatusIn(
+                transportRequest.getId(), Set.of(HospitalOfferStatus.PENDING)
+        );
+        for (HospitalOffer offer : pendingOffers) {
+            long distanceMeters = distanceCalculator.meters(
+                    recoveryAttempt.getSearchOriginLatitude(),
+                    recoveryAttempt.getSearchOriginLongitude(),
+                    offer.getHospitalLatitudeSnapshot(),
+                    offer.getHospitalLongitudeSnapshot()
+            );
+            if (!offer.renotify(recoveryAttempt, distanceMeters, requestedAt, lastClinicalUpdateAt)) {
+                continue;
+            }
+            offerEventRepository.save(HospitalOfferEvent.record(
+                    offer,
+                    HospitalOfferEventType.RENOTIFIED,
+                    null,
+                    null,
+                    null,
+                    null,
+                    requestedAt
+            ));
+            outboxEventRepository.save(RealtimeOutboxEvent.create(
+                    RealtimeEventType.TRANSPORT_REQUEST_RECEIVED,
+                    RealtimeAudienceType.ORGANIZATION,
+                    offer.getHospitalProfile().getOrganization().getPublicId(),
+                    OFFER_AGGREGATE,
+                    offer.getPublicId(),
+                    requestedAt
+            ));
+        }
+    }
+
+    /** 기존 수락 병원에는 환자정보 없는 요청 단위 상태 변경 신호만 전달합니다. */
+    public void notifyAcceptedOffersOfDestinationWithdrawal(
+            TransportRequest transportRequest,
+            Instant occurredAt
+    ) {
+        offerRepository.findByTransportRequestIdAndStatusIn(
+                        transportRequest.getId(),
+                        Set.of(HospitalOfferStatus.ACCEPTED)
+                )
+                .forEach(offer -> outboxEventRepository.save(RealtimeOutboxEvent.create(
+                        RealtimeEventType.HOSPITAL_ACCEPTANCE_WITHDRAWN,
+                        RealtimeAudienceType.ORGANIZATION,
+                        offer.getHospitalProfile().getOrganization().getPublicId(),
+                        TRANSPORT_REQUEST_AGGREGATE,
+                        transportRequest.getPublicId(),
+                        occurredAt
+                )));
     }
 
     /** scheduler가 고른 작업 하나를 잠근 뒤 최초 탐색을 수행합니다. */
@@ -362,5 +426,8 @@ public class HospitalSearchService {
     }
 
     private record HospitalCandidate(HospitalProfile profile, long distanceMeters) {
+    }
+
+    public record WithdrawalRecoveryStart(HospitalDispatchAttempt attempt, boolean created) {
     }
 }

@@ -16,12 +16,16 @@ import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.hospital.search.application.HospitalOfferService;
 import com.hansungteam.ersync.hospital.search.application.HospitalSearchService;
 import com.hansungteam.ersync.hospital.search.api.WithdrawHospitalAcceptanceRequest;
+import com.hansungteam.ersync.hospital.search.api.RejectHospitalOfferRequest;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalDispatchAttemptRepository;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
 import com.hansungteam.ersync.hospital.search.domain.HospitalAcceptanceWithdrawalReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
+import com.hansungteam.ersync.hospital.search.domain.HospitalOfferEventType;
+import com.hansungteam.ersync.hospital.search.domain.HospitalRejectionReason;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptTrigger;
 import com.hansungteam.ersync.hospital.search.domain.HospitalDispatchAttemptStatus;
+import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferEventRepository;
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
@@ -74,6 +78,7 @@ class TransportDestinationServiceIntegrationTest {
     @Autowired private HospitalProfileRepository hospitalProfileRepository;
     @Autowired private HospitalDispatchAttemptRepository attemptRepository;
     @Autowired private HospitalOfferRepository offerRepository;
+    @Autowired private HospitalOfferEventRepository offerEventRepository;
     @Autowired private TransportRequestRepository requestRepository;
     @Autowired private TransportDestinationCommandRepository commandRepository;
     @Autowired private RealtimeOutboxEventRepository outboxRepository;
@@ -372,6 +377,8 @@ class TransportDestinationServiceIntegrationTest {
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTANCE_WITHDRAWN"))
                 .andExpect(jsonPath("$.items[0].processedAt").exists())
                 .andExpect(jsonPath("$.items[0].canWithdraw").value(false))
+                .andExpect(jsonPath("$.items[0].reRequested").value(false))
+                .andExpect(jsonPath("$.items[0].lastRequestedAt").isNotEmpty())
                 .andExpect(jsonPath("$.items[0].withdrawalReason").value("OTHER"))
                 .andExpect(jsonPath("$.items[0].withdrawalDetail").value("전문의 상황 변경"));
 
@@ -407,6 +414,8 @@ class TransportDestinationServiceIntegrationTest {
         UserAccount paramedic = createParamedic("currentwithdrawmedic");
         UserAccount hospitalOne = createHospital("currentwithdrawhospital1", "37.6021000");
         UserAccount hospitalTwo = createHospital("currentwithdrawhospital2", "37.6121000");
+        UserAccount pendingHospital = createHospital("currentwithdrawhospital3", "37.6221000");
+        UserAccount rejectingHospital = createHospital("currentwithdrawhospital4", "37.6321000");
         String requestId = createAndSearch(paramedic);
         var offers = offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId);
         var offerOne = offers.stream()
@@ -415,13 +424,31 @@ class TransportDestinationServiceIntegrationTest {
         var offerTwo = offers.stream()
                 .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(hospitalTwo.getId()))
                 .findFirst().orElseThrow();
+        var pendingOffer = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(pendingHospital.getId()))
+                .findFirst().orElseThrow();
+        var rejectedOffer = offers.stream()
+                .filter(offer -> offer.getHospitalProfile().getAccount().getId().equals(rejectingHospital.getId()))
+                .findFirst().orElseThrow();
         offerService.accept(hospitalPrincipal(hospitalOne), offerOne.getPublicId(), "accept-current-withdraw-1");
         offerService.accept(hospitalPrincipal(hospitalTwo), offerTwo.getPublicId(), "accept-current-withdraw-2");
+        offerService.reject(
+                hospitalPrincipal(rejectingHospital),
+                rejectedOffer.getPublicId(),
+                "reject-current-withdraw-4",
+                new RejectHospitalOfferRequest(
+                        HospitalRejectionReason.SPECIALIST_UNAVAILABLE,
+                        null
+                )
+        );
         destinationService.select(
                 paramedicPrincipal(paramedic), requestId, "select-current-withdraw", offerOne.getPublicId()
         );
+        Instant acceptedOfferCutoff = offerRepository.findById(offerTwo.getId()).orElseThrow()
+                .getClinicalVisibilityCutoffAt();
+        Instant originalPendingOfferedAt = pendingOffer.getOfferedAt();
         UserAccount newlyEligibleHospital = createHospital(
-                "currentwithdrawhospital3", "37.6221000"
+                "currentwithdrawhospital5", "37.6421000"
         );
 
         mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/withdraw-acceptance", offerOne.getPublicId())
@@ -438,7 +465,7 @@ class TransportDestinationServiceIntegrationTest {
         assertThat(stored.getCurrentDestinationOffer()).isNull();
         assertThat(stored.getStatus()).isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
         assertThat(offerRepository.findById(offerTwo.getId()).orElseThrow()
-                .getClinicalVisibilityCutoffAt()).isNull();
+                .getClinicalVisibilityCutoffAt()).isEqualTo(acceptedOfferCutoff);
 
         var recovery = attemptRepository
                 .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)
@@ -447,6 +474,129 @@ class TransportDestinationServiceIntegrationTest {
         assertThat(recovery.getTriggerType()).isEqualTo(HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL);
         assertThat(recovery.getSearchOriginLatitude()).isEqualByComparingTo(stored.getOriginLatitude());
         assertThat(recovery.getSearchOriginLongitude()).isEqualByComparingTo(stored.getOriginLongitude());
+
+        var storedPending = offerRepository.findById(pendingOffer.getId()).orElseThrow();
+        assertThat(storedPending.getPublicId()).isEqualTo(pendingOffer.getPublicId());
+        assertThat(storedPending.getStatus()).isEqualTo(HospitalOfferStatus.PENDING);
+        assertThat(storedPending.getOfferedAt()).isEqualTo(originalPendingOfferedAt);
+        assertThat(storedPending.isReRequested()).isTrue();
+        assertThat(storedPending.getRenotificationCount()).isEqualTo(1);
+        assertThat(storedPending.getLastRequestedAt()).isAfterOrEqualTo(originalPendingOfferedAt);
+        assertThat(storedPending.getLastRequestedAttempt().getId()).isEqualTo(recovery.getId());
+        assertThat(storedPending.getClinicalVisibilityCutoffAt()).isNotNull();
+        assertThat(offerRepository.findById(rejectedOffer.getId()).orElseThrow().isReRequested()).isFalse();
+        assertThat(offerEventRepository.findAll().stream()
+                .filter(event -> event.getHospitalOffer().getId().equals(pendingOffer.getId()))
+                .filter(event -> event.getEventType() == HospitalOfferEventType.RENOTIFIED))
+                .hasSize(1);
+        assertThat(outboxRepository.findAll().stream()
+                .filter(event -> event.getEventType() == RealtimeEventType.TRANSPORT_REQUEST_RECEIVED)
+                .filter(event -> event.getAudiencePublicId().equals(
+                        pendingHospital.getOrganization().getPublicId()
+                ))
+                .filter(event -> event.getAggregatePublicId().equals(pendingOffer.getPublicId())))
+                .hasSize(2);
+        assertThat(outboxRepository.findAll().stream()
+                .filter(event -> event.getEventType() == RealtimeEventType.HOSPITAL_ACCEPTANCE_WITHDRAWN)
+                .filter(event -> event.getAudiencePublicId().equals(hospitalTwo.getOrganization().getPublicId()))
+                .filter(event -> event.getAggregateType().equals("TRANSPORT_REQUEST"))
+                .filter(event -> event.getAggregatePublicId().equals(requestId)))
+                .hasSize(1);
+        assertThat(outboxRepository.findAll().stream()
+                .filter(event -> event.getAudiencePublicId().equals(
+                        rejectingHospital.getOrganization().getPublicId()
+                ))
+                .filter(event -> !event.getOccurredAt().isBefore(recovery.getStartedAt())))
+                .isEmpty();
+
+        mockMvc.perform(get("/api/v1/transport-requests/{requestId}/hospital-search", requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentDestinationOfferId").doesNotExist())
+                .andExpect(jsonPath("$.currentAttempt.triggerType").value("ACCEPTANCE_WITHDRAWAL"));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers")
+                        .queryParam("view", "ACTIVE")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].offerId").value(pendingOffer.getPublicId()))
+                .andExpect(jsonPath("$.items[0].reRequested").value(true))
+                .andExpect(jsonPath("$.items[0].lastRequestedAt").isNotEmpty());
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", pendingOffer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(pendingHospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timing.reRequested").value(true))
+                .andExpect(jsonPath("$.timing.lastRequestedAt").isNotEmpty());
+
+        long attemptCountBeforeReplay = attemptRepository.findAll().stream()
+                .filter(attempt -> attempt.getTransportRequest().getPublicId().equals(requestId))
+                .count();
+        long cardCountBeforeReplay = offerRepository
+                .findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId)
+                .size();
+        long renotifiedEventsBeforeReplay = offerEventRepository.findAll().stream()
+                .filter(event -> event.getHospitalOffer().getId().equals(pendingOffer.getId()))
+                .filter(event -> event.getEventType() == HospitalOfferEventType.RENOTIFIED)
+                .count();
+        long pendingSignalsBeforeReplay = outboxRepository.findAll().stream()
+                .filter(event -> event.getEventType() == RealtimeEventType.TRANSPORT_REQUEST_RECEIVED)
+                .filter(event -> event.getAudiencePublicId().equals(
+                        pendingHospital.getOrganization().getPublicId()
+                ))
+                .filter(event -> event.getAggregatePublicId().equals(pendingOffer.getPublicId()))
+                .count();
+        long acceptedSignalsBeforeReplay = outboxRepository.findAll().stream()
+                .filter(event -> event.getEventType() == RealtimeEventType.HOSPITAL_ACCEPTANCE_WITHDRAWN)
+                .filter(event -> event.getAudiencePublicId().equals(
+                        hospitalTwo.getOrganization().getPublicId()
+                ))
+                .filter(event -> event.getAggregatePublicId().equals(requestId))
+                .count();
+
+        offerService.withdrawAcceptance(
+                hospitalPrincipal(hospitalOne),
+                offerOne.getPublicId(),
+                "withdraw-current-key",
+                new WithdrawHospitalAcceptanceRequest(
+                        HospitalAcceptanceWithdrawalReason.SPECIALIST_UNAVAILABLE,
+                        null
+                )
+        );
+        assertThat(offerRepository.findById(pendingOffer.getId()).orElseThrow().getRenotificationCount())
+                .isEqualTo(1);
+        assertThat(offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId)).hasSize(4);
+        assertThat(offerEventRepository.findAll().stream()
+                .filter(event -> event.getHospitalOffer().getId().equals(pendingOffer.getId()))
+                .filter(event -> event.getEventType() == HospitalOfferEventType.RENOTIFIED))
+                .hasSize(1);
+        assertThat(attemptRepository.findAll().stream()
+                .filter(attempt -> attempt.getTransportRequest().getPublicId().equals(requestId)))
+                .hasSize((int) attemptCountBeforeReplay);
+        assertThat(offerRepository.findByTransportRequestPublicIdOrderByOfferedAtAsc(requestId))
+                .hasSize((int) cardCountBeforeReplay);
+        assertThat(renotifiedEventsBeforeReplay).isEqualTo(1);
+        assertThat(outboxRepository.findAll().stream()
+                .filter(event -> event.getEventType() == RealtimeEventType.TRANSPORT_REQUEST_RECEIVED)
+                .filter(event -> event.getAudiencePublicId().equals(
+                        pendingHospital.getOrganization().getPublicId()
+                ))
+                .filter(event -> event.getAggregatePublicId().equals(pendingOffer.getPublicId())))
+                .hasSize((int) pendingSignalsBeforeReplay);
+        assertThat(outboxRepository.findAll().stream()
+                .filter(event -> event.getEventType() == RealtimeEventType.HOSPITAL_ACCEPTANCE_WITHDRAWN)
+                .filter(event -> event.getAudiencePublicId().equals(
+                        hospitalTwo.getOrganization().getPublicId()
+                ))
+                .filter(event -> event.getAggregatePublicId().equals(requestId)))
+                .hasSize((int) acceptedSignalsBeforeReplay);
+        mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/withdraw-acceptance", offerOne.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne))
+                        .header("Idempotency-Key", "withdraw-current-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"BED_SHORTAGE\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COMMON_005"));
+        assertThat(offerRepository.findById(pendingOffer.getId()).orElseThrow().getRenotificationCount())
+                .isEqualTo(1);
 
         searchService.processDueAttempt(recovery.getId());
 

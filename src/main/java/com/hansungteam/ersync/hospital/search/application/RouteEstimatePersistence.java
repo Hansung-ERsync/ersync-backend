@@ -1,6 +1,7 @@
 package com.hansungteam.ersync.hospital.search.application;
 
 import com.hansungteam.ersync.hospital.search.domain.HospitalOffer;
+import com.hansungteam.ersync.hospital.search.domain.HospitalOfferStatus;
 import com.hansungteam.ersync.hospital.search.domain.RouteEstimateStatus;
 import com.hansungteam.ersync.hospital.search.infrastructure.HospitalOfferRepository;
 import com.hansungteam.ersync.realtime.domain.RealtimeAudienceType;
@@ -55,15 +56,16 @@ public class RouteEstimatePersistence {
         var currentLocation = request.hasDestination(offer)
                 ? locationRepository.findByTransportRequestId(request.getId()).orElse(null)
                 : null;
+        var searchOriginAttempt = offer.getLastRequestedAttempt();
         return new RouteEstimateWork(
                 offer.getId(),
                 offer.getRouteEstimateGeneration(),
                 offer.getEtaAttemptCount(),
                 currentLocation == null
-                        ? offer.getDispatchAttempt().getSearchOriginLatitude()
+                        ? searchOriginAttempt.getSearchOriginLatitude()
                         : currentLocation.getLatitude(),
                 currentLocation == null
-                        ? offer.getDispatchAttempt().getSearchOriginLongitude()
+                        ? searchOriginAttempt.getSearchOriginLongitude()
                         : currentLocation.getLongitude(),
                 offer.getHospitalLatitudeSnapshot(),
                 offer.getHospitalLongitudeSnapshot()
@@ -118,13 +120,23 @@ public class RouteEstimatePersistence {
     }
 
     private boolean isObsoleteDynamicCalculation(HospitalOffer offer) {
-        return offer.getClosedAt() != null
+        if (offer.getClosedAt() != null
                 || offer.getTransportRequest().getStatus()
                         == com.hansungteam.ersync.transport.domain.TransportRequestStatus.COMPLETED
                 || offer.getTransportRequest().getStatus()
-                        == com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED
-                || (offer.getRouteEstimateGeneration() > 0
-                        && !offer.getTransportRequest().hasDestination(offer));
+                        == com.hansungteam.ersync.transport.domain.TransportRequestStatus.CANCELLED) {
+            return true;
+        }
+        if (offer.getRouteEstimateGeneration() == 0
+                || offer.getTransportRequest().hasDestination(offer)) {
+            return false;
+        }
+        if (offer.getTransportRequest().getCurrentDestinationOffer() != null) {
+            return true;
+        }
+        return !offer.isReRequested()
+                || (offer.getStatus() != HospitalOfferStatus.PENDING
+                        && offer.getStatus() != HospitalOfferStatus.ACCEPTED);
     }
 
     private HospitalOffer lockOfferInRequestOrder(Long offerId) {

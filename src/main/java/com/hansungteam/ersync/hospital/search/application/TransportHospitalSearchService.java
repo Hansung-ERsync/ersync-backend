@@ -89,6 +89,7 @@ public class TransportHospitalSearchService {
                 attempt.getPublicId(),
                 attempt.getAttemptNumber(),
                 attempt.getStatus(),
+                attempt.getTriggerType(),
                 attempt.getCurrentRadiusKm(),
                 attempt.isCandidateShortage(),
                 attempt.getNextExpansionAt(),

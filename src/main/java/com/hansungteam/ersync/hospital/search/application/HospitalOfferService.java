@@ -185,7 +185,9 @@ public class HospitalOfferService {
         }
 
         Instant decidedAt = clock.instant();
+        CurrentPatientSnapshot snapshot = requireSnapshot(offer);
         offer.reject(account, request.reason(), detail, idempotencyKey, fingerprint, decidedAt);
+        offer.freezeClinicalVisibility(decidedAt, snapshot.getLastClinicalUpdateAt());
         recordDecision(
                 offer,
                 HospitalOfferEventType.REJECTED,
@@ -241,7 +243,6 @@ public class HospitalOfferService {
         boolean hasRemainingAcceptedOffer = acceptedCount > 1;
         if (currentDestinationWithdrawn) {
             transportRequest.clearDestinationAfterWithdrawal(hasRemainingAcceptedOffer);
-            restoreLiveClinicalVisibility(transportRequest);
         } else if (currentDestination == null) {
             transportRequest.transitionAfterDestinationFreeWithdrawal(hasRemainingAcceptedOffer);
         }
@@ -268,7 +269,21 @@ public class HospitalOfferService {
                 withdrawnAt
         ));
         if (searchRestarted) {
-            hospitalSearchService.startWithdrawalRecovery(transportRequest, withdrawnAt);
+            HospitalSearchService.WithdrawalRecoveryStart recovery = hospitalSearchService
+                    .startWithdrawalRecovery(transportRequest, withdrawnAt);
+            if (currentDestinationWithdrawn && recovery.created()) {
+                CurrentPatientSnapshot snapshot = requireSnapshot(offer);
+                hospitalSearchService.renotifyPendingOffers(
+                        transportRequest,
+                        recovery.attempt(),
+                        withdrawnAt,
+                        snapshot.getLastClinicalUpdateAt()
+                );
+                hospitalSearchService.notifyAcceptedOffersOfDestinationWithdrawal(
+                        transportRequest,
+                        withdrawnAt
+                );
+            }
         }
         recordWithdrawalSignals(offer, account, withdrawnAt);
         return withdrawalResponse(offer, false);
@@ -496,14 +511,6 @@ public class HospitalOfferService {
         }
     }
 
-    private void restoreLiveClinicalVisibility(TransportRequest request) {
-        offerRepository.findByTransportRequestIdAndStatusIn(
-                        request.getId(),
-                        Set.of(HospitalOfferStatus.PENDING, HospitalOfferStatus.ACCEPTED)
-                )
-                .forEach(HospitalOffer::allowLiveClinicalVisibility);
-    }
-
     private HospitalOfferListResponse.Item toListItem(
             HospitalOffer offer,
             CurrentPatientSnapshot snapshot
@@ -538,6 +545,8 @@ public class HospitalOfferService {
                 routeVisible ? offer.getLastSuccessEtaCalculatedAt() : null,
                 visibleSummary.lastClinicalUpdateAt(),
                 offer.getOfferedAt(),
+                offer.isReRequested(),
+                offer.getLastRequestedAt(),
                 offer.getRespondedAt(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
@@ -577,6 +586,8 @@ public class HospitalOfferService {
                 null,
                 null,
                 null,
+                offer.isReRequested(),
+                offer.getLastRequestedAt(),
                 offer.getRespondedAt(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
@@ -692,6 +703,8 @@ public class HospitalOfferService {
                 new HospitalOfferDetailResponse.Timing(
                         offer.getTransportRequest().getServerReceivedAt(),
                         offer.getOfferedAt(),
+                        offer.isReRequested(),
+                        offer.getLastRequestedAt(),
                         visibleSnapshot.lastClinicalUpdateAt()
                 ),
                 offer.getRejectionReason(),

@@ -161,6 +161,16 @@ public class HospitalOffer {
     @Column(name = "offered_at", nullable = false, columnDefinition = "datetime(6)")
     private Instant offeredAt;
 
+    @Column(name = "last_requested_at", nullable = false, columnDefinition = "datetime(6)")
+    private Instant lastRequestedAt;
+
+    @Column(name = "renotification_count", nullable = false)
+    private int renotificationCount;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "last_requested_attempt_id", nullable = false)
+    private HospitalDispatchAttempt lastRequestedAttempt;
+
     @Column(name = "clinical_visibility_cutoff_at", columnDefinition = "datetime(6)")
     private Instant clinicalVisibilityCutoffAt;
 
@@ -202,6 +212,8 @@ public class HospitalOffer {
         this.routeEstimateStatus = RouteEstimateStatus.CALCULATING;
         this.etaNextAttemptAt = offeredAt;
         this.offeredAt = offeredAt;
+        this.lastRequestedAt = offeredAt;
+        this.lastRequestedAttempt = dispatchAttempt;
         this.createdAt = offeredAt;
         this.updatedAt = offeredAt;
     }
@@ -328,6 +340,46 @@ public class HospitalOffer {
         frozenLastClinicalUpdateAt = null;
     }
 
+    /** 기존 응답 대기 카드를 복구 회차의 최신 고정 snapshot으로 다시 요청합니다. */
+    public boolean renotify(
+            HospitalDispatchAttempt recoveryAttempt,
+            long straightLineDistanceMeters,
+            Instant requestedAt,
+            Instant lastClinicalUpdateAt
+    ) {
+        requirePending();
+        requireWithdrawalRecoveryAttempt(recoveryAttempt);
+        if (sameAttempt(lastRequestedAttempt, recoveryAttempt)) {
+            return false;
+        }
+        if (straightLineDistanceMeters < 0 || requestedAt.isBefore(offeredAt)) {
+            throw new IllegalArgumentException("Re-notification distance and time are invalid");
+        }
+        this.lastRequestedAttempt = recoveryAttempt;
+        this.lastRequestedAt = requestedAt;
+        renotificationCount++;
+        this.straightLineDistanceMeters = straightLineDistanceMeters;
+        clinicalVisibilityCutoffAt = requestedAt;
+        frozenLastClinicalUpdateAt = lastClinicalUpdateAt.isAfter(requestedAt)
+                ? requestedAt
+                : lastClinicalUpdateAt;
+        routeEstimateGeneration++;
+        routeEstimateStatus = RouteEstimateStatus.CALCULATING;
+        routeDistanceMeters = null;
+        etaSeconds = null;
+        etaCalculatedAt = null;
+        etaAttemptCount = 0;
+        etaNextAttemptAt = requestedAt;
+        lastSuccessRouteDistanceMeters = null;
+        lastSuccessEtaSeconds = null;
+        lastSuccessEtaCalculatedAt = null;
+        return true;
+    }
+
+    public boolean isReRequested() {
+        return renotificationCount > 0;
+    }
+
     /** 외부 호출 전에 짧은 lease를 잡아 같은 ETA 작업의 동시 실행을 줄입니다. */
     public void reserveRouteEstimate(Instant leaseUntil) {
         if (routeEstimateStatus != RouteEstimateStatus.CALCULATING) {
@@ -384,6 +436,28 @@ public class HospitalOffer {
         if (status != HospitalOfferStatus.PENDING || closedAt != null) {
             throw new IllegalStateException("Only a pending hospital offer can be decided");
         }
+    }
+
+    private void requireWithdrawalRecoveryAttempt(HospitalDispatchAttempt recoveryAttempt) {
+        if (recoveryAttempt == null
+                || recoveryAttempt.getTriggerType() != HospitalDispatchAttemptTrigger.ACCEPTANCE_WITHDRAWAL
+                || !sameRequest(recoveryAttempt.getTransportRequest(), transportRequest)) {
+            throw new IllegalArgumentException("Re-notification requires a recovery attempt for the same request");
+        }
+    }
+
+    private boolean sameAttempt(HospitalDispatchAttempt left, HospitalDispatchAttempt right) {
+        if (left == right) {
+            return true;
+        }
+        return left != null && right != null && left.getId() != null && left.getId().equals(right.getId());
+    }
+
+    private boolean sameRequest(TransportRequest left, TransportRequest right) {
+        if (left == right) {
+            return true;
+        }
+        return left != null && right != null && left.getId() != null && left.getId().equals(right.getId());
     }
 
     @PrePersist

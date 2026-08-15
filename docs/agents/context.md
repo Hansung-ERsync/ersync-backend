@@ -409,7 +409,8 @@ The current destination uses an urgent inability-to-receive notice rather than a
 - exclude the withdrawn hospital from this transport request;
 - keep the same `TransportRequest` and all response history;
 - retain every other accepted hospital so the paramedic can select it immediately;
-- re-notify existing pending hospitals by updating their existing card, request time, and latest minimum clinical summary;
+- re-notify existing pending hospitals by updating their existing card, request time, the clinical summary fixed at that re-request time, and current-origin distance and ETA;
+- keep other accepted hospitals selectable but retain their frozen clinical and route information until selected as the new destination;
 - do not resend to rejected hospitals;
 - search from the latest paramedic location and create offers only for newly eligible hospitals;
 - never choose the next destination automatically.
