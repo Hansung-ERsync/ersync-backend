@@ -1,5 +1,7 @@
 # 자동 병원 탐색 및 병원 응답 React 병원·관리자 웹 핸드오프
 
+> **사용 중지:** 현재 백엔드의 이전 계약 기록입니다. 2026-08-13 개정 정책 구현과 핸드오프 갱신 전에는 `NO_RESPONSE`를 새 병원 화면 계약으로 사용하지 않습니다.
+
 ```text
 Feature: automatic-hospital-search-response
 Backend Feature: docs/features/04-automatic-hospital-search-response/

@@ -1,5 +1,7 @@
 # 목적지 선택·변경 및 수락 철회 구현 계획
 
+> **정책 개정 알림:** 이 문서는 2026-08-13 이전 정책으로 완료된 구현 기록입니다. 새 작업 계획으로 사용하지 말고, 현재 `spec.md`를 기준으로 구현 계획을 다시 작성해야 합니다.
+
 ```text
 Feature: destination-selection-change-acceptance-withdrawal
 Author: backend AI collaboration

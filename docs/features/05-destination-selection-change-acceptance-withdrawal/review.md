@@ -1,5 +1,7 @@
 # 목적지 선택·변경 및 수락 철회 구현 검수
 
+> **정책 개정 알림:** 이 문서는 2026-08-13 이전 구현의 검증 기록입니다. 현재 `spec.md`의 비목적지 제안 유지와 긴급 철회 재검색 정책이 구현됐다는 근거로 사용하지 않습니다.
+
 ```text
 Feature: destination-selection-change-acceptance-withdrawal
 Implemented By: backend AI collaboration

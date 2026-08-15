@@ -1,5 +1,7 @@
 # 자동 병원 탐색 및 병원 응답 구현 검수
 
+> **정책 개정 알림:** 이 문서는 2026-08-13 이전 구현의 검증 기록입니다. 현재 `spec.md`의 후보 소진·무응답·전체 재전송 제외 정책이 구현됐다는 근거로 사용하지 않습니다.
+
 ```text
 Feature: automatic-hospital-search-response
 Implemented By: backend AI collaboration

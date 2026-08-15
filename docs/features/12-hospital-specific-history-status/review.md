@@ -1,5 +1,7 @@
 # 병원별 이송 이력 상태 및 처리 시각 구현 검수
 
+> **정책 개정 알림:** 이 문서는 2026-08-13 이전 구현의 검증 기록입니다. 현재 `spec.md`의 비목적지 `PENDING`·`ACCEPTED` 활성 유지 정책이 구현됐다는 근거로 사용하지 않습니다.
+
 ```text
 Feature: hospital-specific-history-status
 Implemented By: backend AI collaboration
