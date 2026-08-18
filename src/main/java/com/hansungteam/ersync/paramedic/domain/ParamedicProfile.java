@@ -87,6 +87,12 @@ public class ParamedicProfile {
         return create(account, organization, account.getLoginId(), contact);
     }
 
+    /** 계정·소속과 기존 동의는 유지하고 표시 이름과 회신 연락처만 함께 변경합니다. */
+    public void updateDetails(String displayName, String contact) {
+        this.displayName = displayName;
+        this.contact = contact;
+    }
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

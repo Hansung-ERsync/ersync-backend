@@ -3,6 +3,9 @@ package com.hansungteam.ersync.paramedic.infrastructure;
 import com.hansungteam.ersync.paramedic.domain.ParamedicProfile;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+
+import jakarta.persistence.LockModeType;
 
 import java.util.Optional;
 
@@ -11,4 +14,8 @@ public interface ParamedicProfileRepository extends JpaRepository<ParamedicProfi
 
     @EntityGraph(attributePaths = {"account", "organization"})
     Optional<ParamedicProfile> findByAccountPublicId(String accountId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"account", "organization"})
+    Optional<ParamedicProfile> findLockedByAccountPublicId(String accountId);
 }

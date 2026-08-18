@@ -2,11 +2,14 @@ package com.hansungteam.ersync.hospital;
 
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
+import com.hansungteam.ersync.audit.domain.AuditAction;
 import com.hansungteam.ersync.audit.infrastructure.AuditEventRepository;
 import com.hansungteam.ersync.auth.application.JwtTokenService;
 import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
+import com.hansungteam.ersync.hospital.domain.ReceivingStatus;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
+import com.hansungteam.ersync.hospital.api.UpdateHospitalProfileRequest;
 import com.hansungteam.ersync.organization.domain.Organization;
 import com.hansungteam.ersync.organization.domain.OrganizationType;
 import com.hansungteam.ersync.organization.infrastructure.OrganizationRepository;
@@ -19,8 +22,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -40,6 +45,7 @@ class HospitalProfileIntegrationTest {
     @Autowired private HospitalProfileRepository hospitalProfileRepository;
     @Autowired private AuditEventRepository auditEventRepository;
     @Autowired private JwtTokenService jwtTokenService;
+    @Autowired private ObjectMapper objectMapper;
 
     @Test
     void authenticatedHospitalReadsOnlyItsOwnProfileWithoutSensitiveCredentials() throws Exception {
@@ -103,8 +109,161 @@ class HospitalProfileIntegrationTest {
     }
 
     @Test
+    void hospitalUpdatesItsOwnLocationAndContactWithoutChangingReceivingStatus() throws Exception {
+        HospitalContext context = createHospital("updatehospital", "정보 수정 병원");
+        context.profile().changeReceivingStatus(ReceivingStatus.ON);
+        hospitalProfileRepository.saveAndFlush(context.profile());
+        long auditCountBefore = auditEventRepository.countByAction(AuditAction.HOSPITAL_PROFILE_UPDATED);
+        String payload = """
+                {
+                  "address": "  서울특별시 종로구 새주소  ",
+                  "detailAddress": "  별관 2층 응급실  ",
+                  "latitude": 37.5700000,
+                  "longitude": 126.9800000,
+                  "contact": "  02-9876-5432  "
+                }
+                """;
+
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(context.account()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(context.account().getPublicId()))
+                .andExpect(jsonPath("$.organizationId").value(context.organization().getPublicId()))
+                .andExpect(jsonPath("$.hospitalId").value(context.profile().getPublicId()))
+                .andExpect(jsonPath("$.address").value("서울특별시 종로구 새주소"))
+                .andExpect(jsonPath("$.detailAddress").value("별관 2층 응급실"))
+                .andExpect(jsonPath("$.latitude").value(37.57))
+                .andExpect(jsonPath("$.longitude").value(126.98))
+                .andExpect(jsonPath("$.contact").value("02-9876-5432"))
+                .andExpect(jsonPath("$.receivingStatus").value("ON"))
+                .andExpect(jsonPath("$.updatedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(context.account())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.address").value("서울특별시 종로구 새주소"))
+                .andExpect(jsonPath("$.detailAddress").value("별관 2층 응급실"))
+                .andExpect(jsonPath("$.contact").value("02-9876-5432"))
+                .andExpect(jsonPath("$.receivingStatus").value("ON"));
+
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(context.account()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.address").value("서울특별시 종로구 새주소"))
+                .andExpect(jsonPath("$.contact").value("02-9876-5432"));
+
+        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_PROFILE_UPDATED))
+                .isEqualTo(auditCountBefore + 2);
+        assertThat(hospitalProfileRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void hospitalCanClearDetailAddressAndInvalidUpdateRollsBackEntireRequest() throws Exception {
+        HospitalContext context = createHospital("clearhospital", "상세주소 수정 병원");
+        String bearer = bearer(context.account());
+
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "address": "서울특별시 성북구",
+                                  "detailAddress": "   ",
+                                  "latitude": 37.5821000,
+                                  "longitude": 127.0105000,
+                                  "contact": "02-1234-5678"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.detailAddress").doesNotExist());
+
+        long auditCountBefore = auditEventRepository.countByAction(AuditAction.HOSPITAL_PROFILE_UPDATED);
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "address": "저장되면 안 되는 주소",
+                                  "detailAddress": "본관",
+                                  "latitude": 91,
+                                  "longitude": 127.0105000,
+                                  "contact": "invalid contact"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+        mockMvc.perform(get("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.address").value("서울특별시 성북구"))
+                .andExpect(jsonPath("$.detailAddress").doesNotExist())
+                .andExpect(jsonPath("$.contact").value("02-1234-5678"));
+        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_PROFILE_UPDATED))
+                .isEqualTo(auditCountBefore);
+    }
+
+    @Test
+    void everyHospitalProfileFieldConstraintUsesCommonValidationError() throws Exception {
+        HospitalContext context = createHospital("constraintshospital", "입력 검증 병원");
+        String bearer = bearer(context.account());
+        List<UpdateHospitalProfileRequest> invalidRequests = List.of(
+                new UpdateHospitalProfileRequest(
+                        " ", null, new BigDecimal("37.58"), new BigDecimal("127.01"), "02-1234-5678"
+                ),
+                new UpdateHospitalProfileRequest(
+                        "가".repeat(256), null, new BigDecimal("37.58"), new BigDecimal("127.01"), "02-1234-5678"
+                ),
+                new UpdateHospitalProfileRequest(
+                        "서울특별시 성북구", "상".repeat(201),
+                        new BigDecimal("37.58"), new BigDecimal("127.01"), "02-1234-5678"
+                ),
+                new UpdateHospitalProfileRequest(
+                        "서울특별시 성북구", null,
+                        new BigDecimal("90.0000001"), new BigDecimal("127.01"), "02-1234-5678"
+                ),
+                new UpdateHospitalProfileRequest(
+                        "서울특별시 성북구", null,
+                        new BigDecimal("37.58"), new BigDecimal("180.0000001"), "02-1234-5678"
+                ),
+                new UpdateHospitalProfileRequest(
+                        "서울특별시 성북구", null,
+                        new BigDecimal("37.58"), new BigDecimal("127.01"), "invalid contact"
+                )
+        );
+        long auditCountBefore = auditEventRepository.countByAction(AuditAction.HOSPITAL_PROFILE_UPDATED);
+
+        for (UpdateHospitalProfileRequest invalidRequest : invalidRequests) {
+            mockMvc.perform(put("/api/v1/hospitals/me")
+                            .header(HttpHeaders.AUTHORIZATION, bearer)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(invalidRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("COMMON_001"));
+        }
+
+        HospitalProfile unchanged = hospitalProfileRepository.findByAccountPublicId(
+                context.account().getPublicId()
+        ).orElseThrow();
+        assertThat(unchanged.getAddress()).isEqualTo("서울특별시 성북구");
+        assertThat(unchanged.getDetailAddress()).isEqualTo("본관 1층 응급의료센터");
+        assertThat(unchanged.getContact()).isEqualTo("02-1234-5678");
+        assertThat(auditEventRepository.countByAction(AuditAction.HOSPITAL_PROFILE_UPDATED))
+                .isEqualTo(auditCountBefore);
+    }
+
+    @Test
     void authenticationAndHospitalRoleAreRequired() throws Exception {
         mockMvc.perform(get("/api/v1/hospitals/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_001"));
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdateRequest()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_001"));
 
@@ -120,6 +279,13 @@ class HospitalProfileIntegrationTest {
         ));
         mockMvc.perform(get("/api/v1/hospitals/me")
                         .header(HttpHeaders.AUTHORIZATION, bearer(paramedic)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTH_003"));
+
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(paramedic))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdateRequest()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("AUTH_003"));
 
@@ -160,6 +326,12 @@ class HospitalProfileIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(missingProfile)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("HOSPITAL_001"));
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(missingProfile))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdateRequest()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("HOSPITAL_001"));
     }
 
     @Test
@@ -191,6 +363,12 @@ class HospitalProfileIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(account)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COMMON_004"));
+        mockMvc.perform(put("/api/v1/hospitals/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(account))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdateRequest()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMMON_004"));
     }
 
     private HospitalContext createHospital(String loginId, String organizationName) {
@@ -218,6 +396,18 @@ class HospitalProfileIntegrationTest {
 
     private String bearer(UserAccount account) {
         return "Bearer " + jwtTokenService.issue(account).value();
+    }
+
+    private String validUpdateRequest() {
+        return """
+                {
+                  "address": "서울특별시 성북구",
+                  "detailAddress": null,
+                  "latitude": 37.5821000,
+                  "longitude": 127.0105000,
+                  "contact": "02-1234-5678"
+                }
+                """;
     }
 
     private record HospitalContext(

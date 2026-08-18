@@ -131,6 +131,21 @@ public class HospitalProfile {
         this.receivingStatus = receivingStatus;
     }
 
+    /** 수신 상태와 식별 관계는 유지하고 응급실 위치와 연락처만 함께 변경합니다. */
+    public void updateDetails(
+            String address,
+            String detailAddress,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            String contact
+    ) {
+        this.address = address;
+        this.detailAddress = detailAddress;
+        this.latitude = latitude;
+        this.longitude = longitude;
+        this.contact = contact;
+    }
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();
