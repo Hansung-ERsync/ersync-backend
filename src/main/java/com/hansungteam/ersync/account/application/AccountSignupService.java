@@ -13,6 +13,7 @@ import com.hansungteam.ersync.global.exception.ErrorCode;
 import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.domain.HospitalProfile;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
+import com.hansungteam.ersync.hospital.application.HospitalProfilePolicy;
 import com.hansungteam.ersync.invitation.application.InvitationAvailabilityPolicy;
 import com.hansungteam.ersync.invitation.domain.InvitationCode;
 import com.hansungteam.ersync.invitation.infrastructure.InvitationCodeRepository;
@@ -91,8 +92,8 @@ public class AccountSignupService {
             profile = hospitalProfileRepository.saveAndFlush(HospitalProfile.create(
                     organization,
                     account,
-                    request.address().trim(),
-                    normalizeOptionalDetailAddress(request.detailAddress()),
+                    HospitalProfilePolicy.normalizeAndValidateAddress(request.address()),
+                    HospitalProfilePolicy.normalizeOptionalDetailAddress(request.detailAddress()),
                     request.latitude(),
                     request.longitude(),
                     contact
@@ -160,10 +161,6 @@ public class AccountSignupService {
         );
         consume(invitation, account);
         return SignupResponse.paramedic(account);
-    }
-
-    private String normalizeOptionalDetailAddress(String detailAddress) {
-        return detailAddress == null || detailAddress.isBlank() ? null : detailAddress.trim();
     }
 
     private InvitationCode requireUsableInvitation(
