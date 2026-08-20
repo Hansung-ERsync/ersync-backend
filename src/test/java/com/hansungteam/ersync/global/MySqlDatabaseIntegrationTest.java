@@ -227,6 +227,10 @@ class MySqlDatabaseIntegrationTest {
         );
         assertThat(issued.code()).matches("[A-Za-z0-9_-]{8}");
         assertThat(invitationCodeRepository.existsByCodeDigest(secretDigester.digest(issued.code()))).isTrue();
+        String invitationCodeId = invitationCodeRepository
+                .findByCodeDigest(secretDigester.digest(issued.code()))
+                .orElseThrow()
+                .getPublicId();
 
         accountSignupService.signupParamedic(new ParamedicSignupRequest(
                 issued.code(),
@@ -240,14 +244,14 @@ class MySqlDatabaseIntegrationTest {
                 "HOSPITAL_PROVISION_DEV_1.0"
         ));
 
-        assertThat(invitationCodeRepository.findByPublicId(issued.invitation().invitationCodeId()))
+        assertThat(invitationCodeRepository.findByPublicId(invitationCodeId))
                 .get()
                 .extracting(invitation -> invitation.getStatus())
                 .isEqualTo(InvitationStatus.USED);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT OCTET_LENGTH(code_digest) FROM invitation_codes WHERE public_id = ?",
                 Integer.class,
-                issued.invitation().invitationCodeId()
+                invitationCodeId
         )).isEqualTo(32);
     }
 

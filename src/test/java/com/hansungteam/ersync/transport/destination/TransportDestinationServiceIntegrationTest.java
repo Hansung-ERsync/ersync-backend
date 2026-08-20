@@ -353,7 +353,9 @@ class TransportDestinationServiceIntegrationTest {
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offerTwo.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalTwo)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.hospitalOutcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.hospitalOutcome").doesNotExist())
+                .andExpect(jsonPath("$.processedAt").doesNotExist())
                 .andExpect(jsonPath("$.currentDestination").value(false))
                 .andExpect(jsonPath("$.route.status").doesNotExist());
 
@@ -363,11 +365,16 @@ class TransportDestinationServiceIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"OTHER\",\"detail\":\"전문의 상황 변경\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.offerStatus").value("ACCEPTANCE_WITHDRAWN"))
                 .andExpect(jsonPath("$.transportRequestStatus").value("EN_ROUTE"))
-                .andExpect(jsonPath("$.currentDestinationOfferId").value(offerOne.getPublicId()))
+                .andExpect(jsonPath("$.reason").value("OTHER"))
+                .andExpect(jsonPath("$.detail").value("전문의 상황 변경"))
+                .andExpect(jsonPath("$.withdrawnAt").isNotEmpty())
                 .andExpect(jsonPath("$.searchRestarted").value(false))
-                .andExpect(jsonPath("$.idempotentReplay").value(false));
+                .andExpect(jsonPath("$.offerId").doesNotExist())
+                .andExpect(jsonPath("$.offerStatus").doesNotExist())
+                .andExpect(jsonPath("$.transportRequestId").doesNotExist())
+                .andExpect(jsonPath("$.currentDestinationOfferId").doesNotExist())
+                .andExpect(jsonPath("$.idempotentReplay").doesNotExist());
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "HISTORY")
@@ -388,7 +395,10 @@ class TransportDestinationServiceIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"OTHER\",\"detail\":\"전문의 상황 변경\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.idempotentReplay").value(true));
+                .andExpect(jsonPath("$.transportRequestStatus").value("EN_ROUTE"))
+                .andExpect(jsonPath("$.reason").value("OTHER"))
+                .andExpect(jsonPath("$.searchRestarted").value(false))
+                .andExpect(jsonPath("$.idempotentReplay").doesNotExist());
 
         assertThat(requestRepository.findByPublicId(requestId).orElseThrow()
                 .getCurrentDestinationOffer().getPublicId()).isEqualTo(offerOne.getPublicId());

@@ -38,12 +38,17 @@ class AdminOrganizationIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.organizationId").isNotEmpty())
                 .andExpect(jsonPath("$.name").value("한성대학교병원"))
-                .andExpect(jsonPath("$.type").value("HOSPITAL"));
+                .andExpect(jsonPath("$.type").value("HOSPITAL"))
+                .andExpect(jsonPath("$.status").doesNotExist());
 
         mockMvc.perform(get("/api/v1/admin/organizations"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name").value("한성대학교병원"))
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.items[0].status").doesNotExist())
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.page").doesNotExist())
+                .andExpect(jsonPath("$.size").doesNotExist())
+                .andExpect(jsonPath("$.totalElements").doesNotExist());
     }
 
     @Test

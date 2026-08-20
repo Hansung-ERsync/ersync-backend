@@ -89,9 +89,10 @@ class HospitalReceivingIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.hospitalId").value(profile.getPublicId()))
-                .andExpect(jsonPath("$.organizationId").value(hospital.getPublicId()))
-                .andExpect(jsonPath("$.status").value("ON"));
+                .andExpect(jsonPath("$.hospitalId").doesNotExist())
+                .andExpect(jsonPath("$.organizationId").doesNotExist())
+                .andExpect(jsonPath("$.status").value("ON"))
+                .andExpect(jsonPath("$.updatedAt").isNotEmpty());
 
         assertThat(hospitalProfileRepository.findById(profile.getId()).orElseThrow().getReceivingStatus())
                 .isEqualTo(ReceivingStatus.ON);

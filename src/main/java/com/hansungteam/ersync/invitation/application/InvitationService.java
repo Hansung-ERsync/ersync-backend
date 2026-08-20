@@ -70,7 +70,7 @@ public class InvitationService {
                 invitation.getPublicId(),
                 now
         );
-        return new IssuedInvitationResponse(generated.plainText(), InvitationResponse.from(invitation));
+        return new IssuedInvitationResponse(generated.plainText());
     }
 
     /** 원문과 다이제스트를 제외한 가입 코드 목록을 조회합니다. */
