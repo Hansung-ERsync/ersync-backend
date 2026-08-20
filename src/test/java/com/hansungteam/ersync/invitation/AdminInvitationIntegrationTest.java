@@ -90,7 +90,7 @@ class AdminInvitationIntegrationTest {
                                 """.formatted(hospital.getPublicId())))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").isNotEmpty())
-                .andExpect(jsonPath("$.invitation.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.invitation").doesNotExist())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -108,13 +108,31 @@ class AdminInvitationIntegrationTest {
                         .with(authentication(authenticationFor(admin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].invitationCodeId").value(saved.getPublicId()))
+                .andExpect(jsonPath("$.items[0].organizationName").value("한성대학교병원"))
+                .andExpect(jsonPath("$.items[0].role").value("HOSPITAL_STAFF"))
+                .andExpect(jsonPath("$.items[0].status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.items[0].expiresAt").isNotEmpty())
+                .andExpect(jsonPath("$.items[0].organizationId").doesNotExist())
+                .andExpect(jsonPath("$.items[0].organizationType").doesNotExist())
+                .andExpect(jsonPath("$.items[0].usedAt").doesNotExist())
+                .andExpect(jsonPath("$.items[0].revokedAt").doesNotExist())
+                .andExpect(jsonPath("$.items[0].createdAt").doesNotExist())
                 .andExpect(jsonPath("$.items[0].code").doesNotExist())
-                .andExpect(jsonPath("$.items[0].codeDigest").doesNotExist());
+                .andExpect(jsonPath("$.items[0].codeDigest").doesNotExist())
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.page").doesNotExist())
+                .andExpect(jsonPath("$.size").doesNotExist())
+                .andExpect(jsonPath("$.totalElements").doesNotExist());
 
         mockMvc.perform(post("/api/v1/admin/invitation-codes/{id}/revoke", saved.getPublicId())
                         .with(authentication(authenticationFor(admin))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("REVOKED"));
+                .andExpect(jsonPath("$.status").value("REVOKED"))
+                .andExpect(jsonPath("$.organizationId").doesNotExist())
+                .andExpect(jsonPath("$.organizationType").doesNotExist())
+                .andExpect(jsonPath("$.usedAt").doesNotExist())
+                .andExpect(jsonPath("$.revokedAt").doesNotExist())
+                .andExpect(jsonPath("$.createdAt").doesNotExist());
 
         assertThat(auditEventRepository.countByAction(AuditAction.INVITATION_REVOKED)).isEqualTo(1);
     }

@@ -6,6 +6,7 @@ import com.hansungteam.ersync.account.application.AccountSignupService;
 import com.hansungteam.ersync.account.domain.UserAccount;
 import com.hansungteam.ersync.account.infrastructure.UserAccountRepository;
 import com.hansungteam.ersync.global.exception.CustomException;
+import com.hansungteam.ersync.global.crypto.SecretDigester;
 import com.hansungteam.ersync.global.security.UserRole;
 import com.hansungteam.ersync.hospital.infrastructure.HospitalProfileRepository;
 import com.hansungteam.ersync.invitation.api.InvitationExpiryOption;
@@ -51,6 +52,9 @@ class AccountSignupConcurrencyIntegrationTest {
     private InvitationCodeRepository invitationCodeRepository;
 
     @Autowired
+    private SecretDigester secretDigester;
+
+    @Autowired
     private HospitalProfileRepository hospitalProfileRepository;
 
     @Test
@@ -85,7 +89,7 @@ class AccountSignupConcurrencyIntegrationTest {
         assertThat(userAccountRepository.existsByLoginIdAndRole("concurrentmedic1", UserRole.PARAMEDIC)
                 ^ userAccountRepository.existsByLoginIdAndRole("concurrentmedic2", UserRole.PARAMEDIC))
                 .isTrue();
-        assertThat(invitationCodeRepository.findByPublicId(issued.invitation().invitationCodeId()).orElseThrow()
+        assertThat(invitationCodeRepository.findByCodeDigest(secretDigester.digest(issued.code())).orElseThrow()
                 .getStatus()).isEqualTo(InvitationStatus.USED);
     }
 

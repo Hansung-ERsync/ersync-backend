@@ -355,8 +355,9 @@ class TransportLifecycleIntegrationTest {
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.hospitalOutcome").value("ACCEPTED"))
-                .andExpect(jsonPath("$.processedAt").exists());
+                .andExpect(jsonPath("$.offerStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.hospitalOutcome").doesNotExist())
+                .andExpect(jsonPath("$.processedAt").doesNotExist());
         mockMvc.perform(get("/api/v1/hospitals/me/offers")
                         .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(otherAcceptedHospital)))
@@ -405,10 +406,14 @@ class TransportLifecycleIntegrationTest {
                         .queryParam("view", "ACTIVE")
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].canConfirmHandoff").value(true))
+                .andExpect(jsonPath("$.items[0].canConfirmHandoff").doesNotExist())
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("ACCEPTED"))
                 .andExpect(jsonPath("$.items[0].processedAt").exists())
                 .andExpect(jsonPath("$.items[0].transportRequestStatus").value("HANDOFF_REQUESTED"));
+        mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", offer.getPublicId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(hospital)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.canConfirmHandoff").value(true));
 
         receivingService.change(hospitalPrincipal(hospital), ReceivingStatus.OFF);
         mockMvc.perform(post("/api/v1/hospitals/me/offers/{offerId}/confirm-handoff", offer.getPublicId())
@@ -451,7 +456,7 @@ class TransportLifecycleIntegrationTest {
                 .andExpect(jsonPath("$.items[0].offerStatus").value("ACCEPTED"))
                 .andExpect(jsonPath("$.items[0].hospitalOutcome").value("HANDOFF_COMPLETED_HERE"))
                 .andExpect(jsonPath("$.items[0].processedAt").value(completed.getCompletedAt().toString()))
-                .andExpect(jsonPath("$.items[0].canConfirmHandoff").value(false))
+                .andExpect(jsonPath("$.items[0].canConfirmHandoff").doesNotExist())
                 .andExpect(jsonPath("$.items[0].completedAt").exists())
                 .andExpect(jsonPath("$.items[0].ageStatus").doesNotExist());
         mockMvc.perform(get("/api/v1/hospitals/me/offers")

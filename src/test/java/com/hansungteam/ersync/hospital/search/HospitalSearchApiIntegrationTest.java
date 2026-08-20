@@ -115,19 +115,39 @@ class HospitalSearchApiIntegrationTest {
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].offerId").value(hospitalOneOffer.getPublicId()))
                 .andExpect(jsonPath("$.items[0].reRequested").value(false))
+                .andExpect(jsonPath("$.items[0].canConfirmHandoff").doesNotExist())
                 .andExpect(jsonPath("$.items[0].lastRequestedAt").value(
                         hospitalOneOffer.getOfferedAt().toString()
-                ));
+                ))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.page").doesNotExist())
+                .andExpect(jsonPath("$.size").doesNotExist())
+                .andExpect(jsonPath("$.serverNow").doesNotExist());
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", hospitalOneOffer.getPublicId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(hospitalOne)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.transportRequestId").doesNotExist())
+                .andExpect(jsonPath("$.hospitalOutcome").doesNotExist())
+                .andExpect(jsonPath("$.processedAt").doesNotExist())
+                .andExpect(jsonPath("$.completedAt").doesNotExist())
+                .andExpect(jsonPath("$.cancelledAt").doesNotExist())
+                .andExpect(jsonPath("$.cancellationReason").doesNotExist())
                 .andExpect(jsonPath("$.requester.callbackContact").value("010-0000-0001"))
                 .andExpect(jsonPath("$.patient.ageYears").value(45))
+                .andExpect(jsonPath("$.preKtas.exceptionDetail").doesNotExist())
+                .andExpect(jsonPath("$.preKtas.assessedAt").doesNotExist())
+                .andExpect(jsonPath("$.preKtas.standardVersion").doesNotExist())
+                .andExpect(jsonPath("$.consciousness.unassessableDetail").doesNotExist())
+                .andExpect(jsonPath("$.consciousness.observedAt").doesNotExist())
+                .andExpect(jsonPath("$.route.calculatedAt").doesNotExist())
+                .andExpect(jsonPath("$.timing.offeredAt").doesNotExist())
                 .andExpect(jsonPath("$.timing.reRequested").value(false))
                 .andExpect(jsonPath("$.timing.lastRequestedAt").value(
                         hospitalOneOffer.getOfferedAt().toString()
                 ))
+                .andExpect(jsonPath("$.serverNow").isNotEmpty())
                 .andExpect(jsonPath("$.originLatitude").doesNotExist());
 
         mockMvc.perform(get("/api/v1/hospitals/me/offers/{offerId}", hospitalOneOffer.getPublicId())

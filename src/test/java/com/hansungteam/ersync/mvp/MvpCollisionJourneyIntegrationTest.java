@@ -274,8 +274,9 @@ class MvpCollisionJourneyIntegrationTest {
                 )
         );
         assertThat(withdrawal.transportRequestStatus()).isEqualTo(TransportRequestStatus.ACCEPTED_AVAILABLE);
-        assertThat(withdrawal.currentDestinationOfferId()).isNull();
         assertThat(withdrawal.searchRestarted()).isTrue();
+        assertThat(requestRepository.findByPublicId(requestId).orElseThrow().getCurrentDestinationOffer())
+                .isNull();
 
         var recovery = attemptRepository
                 .findTopByTransportRequestPublicIdOrderByAttemptNumberDesc(requestId)

@@ -13,11 +13,8 @@ import java.util.List;
 /** 병원 대시보드 카드와 안정적인 페이지 정보를 반환합니다. */
 public record HospitalOfferListResponse(
         List<Item> items,
-        int page,
-        int size,
         long totalElements,
-        int totalPages,
-        Instant serverNow
+        int totalPages
 ) {
 
     public record Item(
@@ -53,7 +50,6 @@ public record HospitalOfferListResponse(
             HospitalAcceptanceWithdrawalReason withdrawalReason,
             String withdrawalDetail,
             Instant withdrawnAt,
-            boolean canConfirmHandoff,
             Instant handoffRequestedAt,
             Instant completedAt,
             Instant cancelledAt,

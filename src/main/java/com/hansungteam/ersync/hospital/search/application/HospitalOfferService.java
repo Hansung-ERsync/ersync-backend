@@ -102,7 +102,6 @@ public class HospitalOfferService {
         Page<HospitalOffer> result = view == HospitalOfferView.ACTIVE
                 ? offerRepository.findActiveForHospital(profile.getId(), pageable)
                 : offerRepository.findHistoryForHospital(profile.getId(), pageable);
-        Instant now = clock.instant();
         List<HospitalOfferListResponse.Item> items = result.getContent().stream()
                 .map(offer -> view == HospitalOfferView.HISTORY
                         ? toMinimalHistoryItem(offer)
@@ -110,11 +109,8 @@ public class HospitalOfferService {
                 .toList();
         return new HospitalOfferListResponse(
                 items,
-                result.getNumber(),
-                result.getSize(),
                 result.getTotalElements(),
-                result.getTotalPages(),
-                now
+                result.getTotalPages()
         );
     }
 
@@ -221,7 +217,7 @@ public class HospitalOfferService {
             if (!offer.hasSameWithdrawalFingerprint(fingerprint)) {
                 throw new CustomException(ErrorCode.COMMON_DUPLICATE_CONFLICT);
             }
-            return withdrawalResponse(offer, true);
+            return withdrawalResponse(offer);
         }
         if (offer.getStatus() != HospitalOfferStatus.ACCEPTED) {
             throw new CustomException(ErrorCode.HOSPITAL_OFFER_ALREADY_DECIDED);
@@ -286,7 +282,7 @@ public class HospitalOfferService {
             }
         }
         recordWithdrawalSignals(offer, account, withdrawnAt);
-        return withdrawalResponse(offer, false);
+        return withdrawalResponse(offer);
     }
 
     private HospitalOffer lockScopedOffer(AuthenticatedAccount principal, String offerId) {
@@ -383,20 +379,13 @@ public class HospitalOfferService {
         );
     }
 
-    private HospitalAcceptanceWithdrawalResponse withdrawalResponse(HospitalOffer offer, boolean replay) {
+    private HospitalAcceptanceWithdrawalResponse withdrawalResponse(HospitalOffer offer) {
         return new HospitalAcceptanceWithdrawalResponse(
-                offer.getPublicId(),
-                offer.getStatus(),
-                offer.getTransportRequest().getPublicId(),
                 offer.getWithdrawalResultingRequestStatus(),
-                offer.getWithdrawalResultingDestinationOffer() == null
-                        ? null
-                        : offer.getWithdrawalResultingDestinationOffer().getPublicId(),
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
                 offer.getWithdrawnAt(),
-                Boolean.TRUE.equals(offer.getWithdrawalSearchRestarted()),
-                replay
+                Boolean.TRUE.equals(offer.getWithdrawalSearchRestarted())
         );
     }
 
@@ -553,7 +542,6 @@ public class HospitalOfferService {
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
                 offer.getWithdrawnAt(),
-                canConfirmHandoff(offer),
                 offer.getTransportRequest().getHandoffRequestedAt(),
                 offer.getTransportRequest().getCompletedAt(),
                 offer.getTransportRequest().getCancelledAt(),
@@ -596,7 +584,6 @@ public class HospitalOfferService {
                 offer.getWithdrawalReason(),
                 offer.getWithdrawalDetail(),
                 offer.getWithdrawnAt(),
-                canConfirmHandoff(offer),
                 offer.getTransportRequest().getHandoffRequestedAt(),
                 offer.getTransportRequest().getCompletedAt(),
                 offer.getTransportRequest().getCancelledAt(),
@@ -615,7 +602,6 @@ public class HospitalOfferService {
         var preKtas = visibleSnapshot.latestPreKtasAssessment();
         var consciousness = visibleSnapshot.latestConsciousnessAssessment();
         var vitalSigns = visibleSnapshot.latestVitalSignSet();
-        HospitalOfferOutcomeResult outcome = outcomeResolver.resolve(offer);
         boolean routeVisible = isRouteVisible(offer);
         List<HospitalOfferDetailResponse.VitalSign> measurements = vitalSigns.getMeasurements().stream()
                 .map(measurement -> new HospitalOfferDetailResponse.VitalSign(
@@ -648,12 +634,9 @@ public class HospitalOfferService {
                 .toList();
         return new HospitalOfferDetailResponse(
                 offer.getPublicId(),
-                offer.getTransportRequest().getPublicId(),
                 offer.getDispatchAttempt().getAttemptNumber(),
                 offer.getTransportRequest().getStatus(),
                 offer.getStatus(),
-                outcome.outcome(),
-                outcome.processedAt(),
                 offer.getTransportRequest().hasDestination(offer),
                 canWithdraw(offer),
                 new HospitalOfferDetailResponse.Patient(
@@ -674,16 +657,11 @@ public class HospitalOfferService {
                 new HospitalOfferDetailResponse.PreKtas(
                         preKtas.getClassificationStatus().name(),
                         preKtas.getLevel(),
-                        enumName(preKtas.getExceptionReason()),
-                        preKtas.getExceptionDetail(),
-                        preKtas.getAssessedAt(),
-                        preKtas.getStandardVersion()
+                        enumName(preKtas.getExceptionReason())
                 ),
                 new HospitalOfferDetailResponse.Consciousness(
                         consciousness.getAvpu().name(),
-                        enumName(consciousness.getUnassessableReason()),
-                        consciousness.getUnassessableDetail(),
-                        consciousness.getObservedAt()
+                        enumName(consciousness.getUnassessableReason())
                 ),
                 new HospitalOfferDetailResponse.VitalSigns(vitalSigns.getMeasuredAt(), measurements),
                 treatments,
@@ -699,14 +677,12 @@ public class HospitalOfferService {
                         routeVisible ? offer.getRouteEstimateStatus() : null,
                         routeVisible ? offer.getRouteDistanceMeters() : null,
                         routeVisible ? offer.getEtaSeconds() : null,
-                        routeVisible ? offer.getEtaCalculatedAt() : null,
                         routeVisible ? offer.getLastSuccessRouteDistanceMeters() : null,
                         routeVisible ? offer.getLastSuccessEtaSeconds() : null,
                         routeVisible ? offer.getLastSuccessEtaCalculatedAt() : null
                 ),
                 new HospitalOfferDetailResponse.Timing(
                         offer.getTransportRequest().getServerReceivedAt(),
-                        offer.getOfferedAt(),
                         offer.isReRequested(),
                         offer.getLastRequestedAt(),
                         visibleSnapshot.lastClinicalUpdateAt()
@@ -719,9 +695,6 @@ public class HospitalOfferService {
                 offer.getWithdrawnAt(),
                 canConfirmHandoff(offer),
                 offer.getTransportRequest().getHandoffRequestedAt(),
-                offer.getTransportRequest().getCompletedAt(),
-                offer.getTransportRequest().getCancelledAt(),
-                offer.getTransportRequest().getCancellationReason(),
                 now
         );
     }
